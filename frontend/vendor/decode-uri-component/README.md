@@ -1,0 +1,1 @@
+Upstream decode-uri-component 0.5.0 from https://github.com/SamVerschueren/decode-uri-component. Only export syntax changed from ESM default to CommonJS module.exports for query-string 7 / Expo Router compatibility. Algorithm unchanged. Keep this override until upstream query-string/Expo Router adopt the patched decoder. MIT license included.
