@@ -1,3 +1,5 @@
+> **Vercel web testing:** follow [the deployment guide](VERCEL-DEPLOYMENT.md). This is the current frontend deployment procedure; the separate backend setup below still applies.
+
 # Bring Gift Card v1.1.0
 
 Frontend: Expo Router / React Native web. Backend: FastAPI / MongoDB replica set.

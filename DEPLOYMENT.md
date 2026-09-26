@@ -1,3 +1,5 @@
+> **Vercel web testing:** follow [the deployment guide](VERCEL-DEPLOYMENT.md). This is the current frontend deployment procedure; the separate backend setup below still applies.
+
 # Bring Gift Card v1.1.0 — deployment and operations
 
 This is a prepared source release, not a deployed service. Read `../PROJECT BRAIN/verification/latest-test-result.md` for the exact checks performed. Actual company rates, legal text and live service credentials are deliberately absent.

@@ -1,8 +1,9 @@
 import { Platform } from "react-native";
 import { storage } from "@/src/utils/storage";
+import { normalizeBackendUrl } from "@/config/public-env";
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL?.trim().replace(/\/$/, "");
-if (!BACKEND_URL) throw new Error("EXPO_PUBLIC_BACKEND_URL is not configured");
+// Keep direct process.env access: Expo replaces this public value at build time.
+const BACKEND_URL = normalizeBackendUrl(process.env.EXPO_PUBLIC_BACKEND_URL);
 const BASE = `${BACKEND_URL}/api`;
 export const TOKEN_KEY = "bgc_auth_token";
 
