@@ -12,8 +12,8 @@ Only the public API origin belongs in Vercel. MongoDB URLs, JWT/encryption secre
 
 1. Extract the complete ZIP and put the two top-level folders in your Git repository. Commit the source, including `frontend/vendor`, `package-lock.json` and `vercel.json`. Do not commit local `.env`, `node_modules`, `dist` or `.vercel`.
 2. In Vercel choose **Add New > Project**, then import that repository. Use a dedicated staging project, for example a name of your choice ending in `-staging`.
-3. Set **Root Directory** to `BRING GIFT CARD/frontend`. If your repository itself starts inside `BRING GIFT CARD`, use `frontend` instead. The selected directory must directly contain `package.json` and `vercel.json`.
-4. Set **Framework Preset** to **Other** and **Node.js Version** to **22.x**. The committed configuration defines Install Command `npm ci`, Build Command `npm run build:web`, and Output Directory `dist`. Remove conflicting dashboard overrides. Leave automatic exposure of Vercel system environment variables enabled; the build uses `VERCEL` to enforce HTTPS deployment configuration.
+3. **Leave Root Directory at the repository root (blank/default).** This release now includes a repository-root Vercel wrapper, so Vercel can build the nested Expo frontend without manual folder selection. For compatibility, equivalent wrappers also exist inside `BRING GIFT CARD/`, while `BRING GIFT CARD/frontend/` remains directly deployable on its own.
+4. Set **Framework Preset** to **Other** and **Node.js Version** to **22.x** if Vercel does not pick them from the committed configuration. The repository-root configuration installs the frontend with `npm --prefix "BRING GIFT CARD/frontend" ci`, builds with `npm --prefix "BRING GIFT CARD/frontend" run build:web`, and publishes `BRING GIFT CARD/frontend/dist`. Remove conflicting dashboard overrides. Leave automatic exposure of Vercel system environment variables enabled; the build uses `VERCEL` to enforce HTTPS deployment configuration.
 5. Before clicking Deploy, add the environment variables below to both **Preview** and **Production** in this dedicated staging project. Vercel calls the default-branch deployment “Production” even when your project is only used for staging.
 
 | Variable | Value |
@@ -60,7 +60,7 @@ Use an SPA-capable local server if previewing `dist`; Vercel uses the committed 
 | HTTPS/origin validation failure | Use the external HTTPS origin, remove `/api`, credentials, query and fragment. |
 | Page loads but API fails | Check backend readiness, DNS/TLS and exact CORS origin. Check the browser's actual request URL. |
 | Old API URL remains | Trigger a fresh build with the new environment; values are compiled in. |
-| Refresh returns Vercel 404 | Check Root Directory, output `dist`, and that the committed `vercel.json` was used. |
+| Whole site returns Vercel `404 NOT_FOUND` immediately | Confirm the GitHub redeploy includes the new repository-root `vercel.json` and `package.json`. Prefer Root Directory blank/default. If the project has an old manual Root Directory override, reset it to the repository root and redeploy. |
 | API call returns HTML | Ensure the configured URL points to FastAPI, not the frontend Vercel domain. |
 | Protected screen returns Login | Check authentication/token expiry; this is separate from SPA rewriting. |
 
