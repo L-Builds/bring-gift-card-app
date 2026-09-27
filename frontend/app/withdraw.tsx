@@ -40,6 +40,7 @@ export default function Withdraw() {
   useEffect(()=>{requestKey.current=`wd_${Date.now()}_${Math.random().toString(36).slice(2)}`;},[amount,selected]);
   const balance = wallet?.available_balance_kobo ?? 0;
   const accounts = accData?.accounts ?? [];
+  const amountMinor = toMinor(amount, user?.minor_digits ?? 2);
 
   useEffect(() => {
     if (!selected && accounts.length > 0) setSelected(accounts[0].id);
@@ -111,7 +112,7 @@ export default function Withdraw() {
               style={styles.amountInput}
               placeholder={`${user?.currency || "NGN"} amount`}
               placeholderTextColor={colors.onSurface}
-              keyboardType="number-pad"
+              keyboardType="decimal-pad"
               value={amount}
               onChangeText={(t) => setAmount(t.replace(/[^0-9.]/g, ""))}
               testID="withdraw-amount"
@@ -173,7 +174,7 @@ export default function Withdraw() {
           <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Enter transaction PIN</Text>
-            <Text style={styles.sheetSub}>Confirm withdrawal of <Text style={{ fontWeight: "800", color: colors.onSurface }}>{formatNaira(parseInt(amount || "0", 10) * 100)}</Text></Text>
+            <Text style={styles.sheetSub}>Confirm withdrawal of <Text style={{ fontWeight: "800", color: colors.onSurface }}>{formatNaira(amountMinor ?? 0)}</Text></Text>
             <PinPad onComplete={submit} resetKey={pinAttempt} error={pinError} disabled={loading} testID="withdraw-pin" />
             <Pressable onPress={() => router.push("/security/pin")} style={{ alignSelf: "center", paddingTop: spacing.md }} testID="withdraw-pin-forgot">
               <Text style={styles.link}>Forgot PIN?</Text>

@@ -17,11 +17,11 @@ export default function Wallet() {
   const { colors } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { refresh } = useAuth();
+  const { refresh, user } = useAuth();
 
   const { data, refetch, isRefetching } = useQuery({
     queryKey: ["wallet"],
-    queryFn: () => api.get<{ available_balance_kobo: number; payout_accounts_count: number }>("/wallet"),
+    queryFn: () => api.get<{ available_balance_kobo: number; payout_accounts_count: number; currency: string }>("/wallet"),
   });
 
   const onRefresh = async () => {
@@ -38,7 +38,7 @@ export default function Wallet() {
         <LinearGradient colors={[colors.brandDeep, colors.brandPrimary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.card}>
           <Text style={styles.label}>Available Balance</Text>
           <Text style={styles.value} testID="wallet-balance">{formatNaira(data?.available_balance_kobo ?? 0)}</Text>
-          <Text style={styles.currency}>Wallet • NGN</Text>
+          <Text style={styles.currency}>Wallet • {data?.currency || user?.currency || "NGN"}</Text>
           <Ionicons name="wallet" size={96} color="rgba(255,255,255,0.12)" style={styles.bgIcon} />
         </LinearGradient>
 

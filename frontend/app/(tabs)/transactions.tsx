@@ -8,7 +8,8 @@ import { AppHeader } from "@/src/components/app-header";
 import { ScreenBackground, StatusBadge, LoadingView, EmptyState, PrimaryButton } from "@/src/components/ui";
 import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
-import { formatNaira, formatDate } from "@/src/lib/format";
+import { formatNaira, formatDate, toMinor } from "@/src/lib/format";
+import { useToast } from "@/src/components/toast";
 
 type Txn = {
   id: string; kind: string; title: string; subtitle: string; amount_kobo: number;
@@ -54,7 +55,10 @@ function parseDateEnd(value: string) {
 export default function Transactions() {
   const styles = useStyles();
   const { colors } = useTheme();
-  const { isGuest } = useAuth();
+  const { isGuest, user } = useAuth();
+  const toast = useToast();
+  const minorDigits = user?.minor_digits ?? 2;
+  const currency = user?.currency ?? "NGN";
   const router = useRouter();
   const [type, setType] = useState("all");
   const [status, setStatus] = useState("");
@@ -82,8 +86,8 @@ export default function Transactions() {
   const filteredTransactions = useMemo(() => {
     const start = startDate ? parseDateStart(startDate) : null;
     const end = endDate ? parseDateEnd(endDate) : null;
-    const minKobo = minAmount ? Number(minAmount) * 100 : null;
-    const maxKobo = maxAmount ? Number(maxAmount) * 100 : null;
+    const minKobo = minAmount ? toMinor(minAmount, minorDigits) : null;
+    const maxKobo = maxAmount ? toMinor(maxAmount, minorDigits) : null;
 
     return (data?.transactions ?? []).filter((item) => {
       const when = new Date(item.date);
@@ -93,7 +97,7 @@ export default function Transactions() {
       if (maxKobo !== null && Number.isFinite(maxKobo) && item.amount_kobo > maxKobo) return false;
       return true;
     });
-  }, [data?.transactions, startDate, endDate, minAmount, maxAmount]);
+  }, [data?.transactions, startDate, endDate, minAmount, maxAmount, minorDigits]);
 
   if (isGuest) return <Redirect href="/(auth)/login" />;
 
@@ -108,6 +112,10 @@ export default function Transactions() {
   };
 
   const applyFilter = () => {
+    if ([tmpMinAmount.trim(), tmpMaxAmount.trim()].some((value) => value && toMinor(value, minorDigits) === null)) {
+      toast.show(`Enter positive amounts with at most ${minorDigits} decimal place${minorDigits === 1 ? "" : "s"}`, "error");
+      return;
+    }
     setType(tmpType);
     setStatus(tmpStatus);
     setStartDate(tmpStartDate.trim());
@@ -242,13 +250,13 @@ export default function Transactions() {
               <Text style={styles.groupLabel}>Amount range</Text>
               <View style={styles.rangeRow}>
                 <View style={styles.inputBox}>
-                  <Text style={styles.currencyMark}>₦</Text>
-                  <TextInput style={styles.rangeInput} placeholder="Min amount" placeholderTextColor={colors.muted} value={tmpMinAmount} onChangeText={(v) => setTmpMinAmount(v.replace(/[^0-9]/g, ""))} keyboardType="number-pad" testID="txn-filter-min" />
+                  <Text style={styles.currencyMark}>{currency}</Text>
+                  <TextInput style={styles.rangeInput} placeholder="Min amount" placeholderTextColor={colors.muted} value={tmpMinAmount} onChangeText={(v) => setTmpMinAmount(v.replace(/[^0-9.]/g, ""))} keyboardType="decimal-pad" testID="txn-filter-min" />
                 </View>
                 <Text style={styles.rangeDash}>-</Text>
                 <View style={styles.inputBox}>
-                  <Text style={styles.currencyMark}>₦</Text>
-                  <TextInput style={styles.rangeInput} placeholder="Max amount" placeholderTextColor={colors.muted} value={tmpMaxAmount} onChangeText={(v) => setTmpMaxAmount(v.replace(/[^0-9]/g, ""))} keyboardType="number-pad" testID="txn-filter-max" />
+                  <Text style={styles.currencyMark}>{currency}</Text>
+                  <TextInput style={styles.rangeInput} placeholder="Max amount" placeholderTextColor={colors.muted} value={tmpMaxAmount} onChangeText={(v) => setTmpMaxAmount(v.replace(/[^0-9.]/g, ""))} keyboardType="decimal-pad" testID="txn-filter-max" />
                 </View>
               </View>
             </ScrollView>
