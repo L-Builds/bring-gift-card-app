@@ -42,7 +42,7 @@ export default function Login() {
   const onGoogle = async () => {
     setGLoading(true);
     try {
-      const sid = await startGoogleSignIn();
+      const sid = await startGoogleSignIn(tradeIntent);
       if (!sid) return;
       const u = await loginWithGoogle(sid);
       if (u) toast.show(`Welcome, ${u.full_name.split(" ")[0]}!`, "success");

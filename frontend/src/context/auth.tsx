@@ -29,6 +29,7 @@ type AuthState = {
   balanceKobo: number;
   loading: boolean;
   googleBusy: boolean;
+  googleSignInCompleted: boolean;
   isGuest: boolean;
   isAdmin: boolean;
   token: string | null;
@@ -49,6 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [balanceKobo, setBalanceKobo] = useState(0);
   const [loading, setLoading] = useState(true);
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [googleSignInCompleted, setGoogleSignInCompleted] = useState(false);
   const [token, setTok] = useState<string | null>(null);
 
   const loadMe = useCallback(async () => {
@@ -86,6 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await api.post<{ access_token: string; user: User }>("/auth/session", { session_id: sessionId }, false);
       await persist(res.access_token, res.user);
       cleanWebUrl();
+      setGoogleSignInCompleted(true);
       return res.user;
     } finally {
       setGoogleBusy(false);
@@ -141,6 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setTok(null);
     setUser(null);
     setBalanceKobo(0);
+    setGoogleSignInCompleted(false);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -154,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         balanceKobo,
         loading,
         googleBusy,
+        googleSignInCompleted,
         isGuest: !user,
         isAdmin: user?.role === "admin",
         token,

@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
+import { rememberGoogleTradeIntent, type TradeIntent } from "@/src/lib/trade-intent";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -35,12 +36,13 @@ export function cleanWebUrl() {
  * Starts Google sign-in. On web this navigates away (returns null).
  * On native it resolves with the `session_id` from the callback URL, or null if cancelled.
  */
-export async function startGoogleSignIn(): Promise<string | null> {
+export async function startGoogleSignIn(tradeIntent: TradeIntent = {}): Promise<string | null> {
   if (!AUTH_BASE) throw new Error("Google sign-in is not configured");
   const redirect = redirectUrl();
   const authUrl = `${AUTH_BASE.replace(/\/$/, "")}/?redirect=${encodeURIComponent(redirect)}`;
 
   if (Platform.OS === "web") {
+    rememberGoogleTradeIntent(tradeIntent);
     window.location.href = authUrl;
     return null;
   }
