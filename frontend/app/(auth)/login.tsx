@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import Ionicons from "@react-native-vector-icons/ionicons";
@@ -12,12 +12,14 @@ import { useToast } from "@/src/components/toast";
 import { useAuth } from "@/src/context/auth";
 import { ApiError } from "@/src/api/client";
 import { startGoogleSignIn } from "@/src/lib/google-auth";
+import { afterAuthHref, tradeAuthHref, type TradeIntent } from "@/src/lib/trade-intent";
 
 export default function Login() {
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const tradeIntent = useLocalSearchParams<TradeIntent>();
   const toast = useToast();
   const { login, loginWithGoogle, user, googleBusy } = useAuth();
 
@@ -29,8 +31,8 @@ export default function Login() {
   const [gLoading, setGLoading] = useState(false);
 
   useEffect(() => {
-    if (user) router.replace(user.role === "admin" ? "/admin" : "/(tabs)");
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (user) router.replace(afterAuthHref(user.role, tradeIntent));
+  }, [user, tradeIntent.brand_id, tradeIntent.card_value_usd, tradeIntent.quantity]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const changeTab = (next: "email" | "phone") => {
     setTab(next);
@@ -60,7 +62,7 @@ export default function Login() {
     try {
       const u = await login(value, password, tab);
       toast.show(`Welcome back, ${u.full_name.split(" ")[0]}!`, "success");
-      router.replace(u.role === "admin" ? "/admin" : "/(tabs)");
+      router.replace(afterAuthHref(u.role, tradeIntent));
     } catch (e) {
       toast.show(e instanceof ApiError ? e.message : "Login failed", "error");
     } finally {
@@ -142,7 +144,7 @@ export default function Login() {
 
           <View style={styles.signupRow}>
             <Text style={styles.muted}>Don&apos;t have an account? </Text>
-            <Pressable onPress={() => router.replace("/(auth)/signup")} testID="login-goto-signup">
+            <Pressable onPress={() => router.replace(tradeAuthHref("signup", tradeIntent))} testID="login-goto-signup">
               <Text style={styles.link}>Sign Up</Text>
             </Pressable>
           </View>

@@ -11,6 +11,7 @@ import { ScreenBackground, BrandMonogram, PrimaryButton, LoadingView } from "@/s
 import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/auth";
 import { formatMoney } from "@/src/lib/format";
+import { tradeAuthHref, tradeHref } from "@/src/lib/trade-intent";
 
 type Brand = {
   id: string;
@@ -61,8 +62,13 @@ export default function CardDetail() {
     [rates.data?.rates, id],
   );
   const selectedRate = cardRates.find((rate) => rate.id === selectedRateId) ?? cardRates[0];
+  const tradeIntent = {
+    brand_id: id,
+    card_value_usd: selectedRate ? String(selectedRate.face_value) : undefined,
+    quantity: selectedRate ? String(quantity) : undefined,
+  };
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ["brand", id],
     queryFn: () => api.get<Brand>(`/brands/${id}`),
   });
@@ -71,7 +77,12 @@ export default function CardDetail() {
     return (
       <ScreenBackground>
         <StackHeader title="Card Details" />
-        <LoadingView />
+        {isLoading ? <LoadingView /> : (
+          <View style={styles.loadError}>
+            <Text style={styles.rateNote}>Card details could not be loaded.</Text>
+            <PrimaryButton title="Try again" onPress={() => { void refetch(); }} testID="card-retry" />
+          </View>
+        )}
       </ScreenBackground>
     );
   }
@@ -114,7 +125,7 @@ export default function CardDetail() {
               <Text style={styles.rateNote}>Indicative payout for {quantity} × ${selectedRate.face_value}. The current quote is confirmed before you submit a trade.</Text>
             </>
           ) : (
-            <Text style={styles.rateValue}>{rateLabel(data.id, rates.data)}</Text>
+            <Text style={styles.rateValue}>{rates.isError && !rates.data ? "Rates unavailable" : rates.isLoading ? "Checking rates…" : rateLabel(data.id, rates.data)}</Text>
           )}
         </View>
 
@@ -144,7 +155,7 @@ export default function CardDetail() {
         <PrimaryButton
           title={`Trade ${data.name}`}
           icon="swap-horizontal"
-          onPress={() => isGuest ? router.push("/(auth)/login") : router.push({ pathname: "/(tabs)/trade", params: { brand_id: data.id } })}
+          onPress={() => router.push(isGuest ? tradeAuthHref("login", tradeIntent) : tradeHref(tradeIntent))}
           testID="card-trade"
         />
       </View>
@@ -153,6 +164,7 @@ export default function CardDetail() {
 }
 
 const useStyles = makeStyles((colors) => ({
+  loadError: { alignItems: "center", justifyContent: "center", flex: 1, paddingHorizontal: spacing.xl, gap: spacing.md },
   hero: { alignItems: "center", gap: spacing.sm, marginTop: spacing.md },
   name: { fontSize: 22, fontWeight: "800", color: colors.onSurface, marginTop: spacing.sm },
   catPill: { backgroundColor: colors.brandSecondary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 5 },

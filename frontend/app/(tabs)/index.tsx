@@ -44,6 +44,11 @@ export default function Home() {
     queryKey: ["brands", "popular"],
     queryFn: () => api.get<{ brands: Brand[] }>("/brands?popular=true", false),
   });
+  const allBrands = useQuery({
+    queryKey: ["brands", "all"],
+    queryFn: () => api.get<{ brands: Brand[] }>("/brands", false),
+    enabled: !isError && data?.brands.length === 0,
+  });
 
   const gate = (path: string) => () => {
     if (isGuest) router.push("/(auth)/login");
@@ -51,12 +56,22 @@ export default function Home() {
   };
 
   const onRefresh = async () => {
-    await Promise.all([refetch(), refresh()]);
+    await Promise.all([refetch(), data?.brands.length === 0 ? allBrands.refetch() : Promise.resolve(), rates.refetch(), refresh()]);
   };
+
+  const popularBrands = data?.brands ?? [];
+  const catalogError = popularBrands.length === 0 && (isError || allBrands.isError);
+  const catalogLoading = isLoading || (popularBrands.length === 0 && allBrands.isLoading);
+  const rateText = (brandId: string) => rates.isError && !rates.data
+    ? "Rates unavailable"
+    : rates.isLoading ? "Checking rate…" : rateLabel(brandId, rates.data);
+  const currencyLabel = isGuest
+    ? rates.isError && !rates.data ? "Market error" : rates.isLoading ? "Checking market" : rates.data?.market?.currency ?? "No market"
+    : undefined;
 
   return (
     <ScreenBackground>
-      <AppHeader greeting={{ hi: "Hi", name: isGuest ? "Guest" : user!.full_name.split(" ")[0] }} showCurrency showBell />
+      <AppHeader greeting={{ hi: "Hi", name: isGuest ? "Guest" : user!.full_name.split(" ")[0] }} showCurrency currencyLabel={currencyLabel} showBell />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
@@ -114,12 +129,24 @@ export default function Home() {
             </Pressable>
           </View>
 
-          {isLoading ? (
+          {catalogLoading ? (
             <LoadingView />
           ) : (
             <View style={styles.brandList}>
-              {(data?.brands ?? []).length === 0 && <Text style={styles.noBrands}>{isError ? "Could not load gift cards. Pull down to retry." : "No gift cards published yet."}</Text>}
-              {(data?.brands ?? []).map((b, i, list) => (
+              {catalogError ? (
+                <View style={styles.emptyMessage} testID="home-catalog-error">
+                  <Text style={styles.noBrands}>Gift cards could not be loaded right now.</Text>
+                  <Pressable onPress={onRefresh} accessibilityRole="button" testID="home-catalog-retry">
+                    <Text style={styles.retryText}>Try again</Text>
+                  </Pressable>
+                </View>
+              ) : popularBrands.length === 0 ? (
+                <Text style={styles.noBrands} testID="home-catalog-empty">
+                  {allBrands.data?.brands.length ? "No popular gift cards are featured right now. View all cards to browse what's available." : "No gift cards have been published yet."}
+                </Text>
+              ) : null}
+              {isError && popularBrands.length > 0 && <Text style={styles.staleNotice}>Could not refresh gift cards. Showing the last loaded list.</Text>}
+              {popularBrands.map((b, i, list) => (
                 <Pressable
                   key={b.id}
                   onPress={() => router.push(`/card/${b.id}`)}
@@ -129,7 +156,7 @@ export default function Home() {
                   <BrandIcon brand={b} />
                   <Text style={styles.brandName}>{b.name}</Text>
                   <View style={styles.brandRight}>
-                    <Text style={styles.brandRate}>{rateLabel(b.id, rates.data)}</Text>
+                    <Text style={styles.brandRate}>{rateText(b.id)}</Text>
                     <Ionicons name="chevron-forward" size={17} color={colors.muted} />
                   </View>
                 </Pressable>
@@ -225,6 +252,9 @@ const useStyles = makeStyles((colors) => ({
   viewAllText: { color: colors.brandLink, fontWeight: "700", fontSize: 13.5 },
   brandList: { paddingHorizontal: spacing.lg },
   noBrands: { paddingVertical: spacing.xl, textAlign: "center", color: colors.muted },
+  emptyMessage: { alignItems: "center", paddingBottom: spacing.lg },
+  retryText: { color: colors.brandLink, fontWeight: "700", padding: spacing.sm },
+  staleNotice: { color: colors.muted, fontSize: 12, paddingVertical: spacing.sm },
   brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 57 },
   brandDivider: { borderBottomWidth: 1, borderBottomColor: colors.divider },
   brandName: { flex: 1, fontSize: 14.5, fontWeight: "600", color: colors.onSurface },

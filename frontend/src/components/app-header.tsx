@@ -13,11 +13,13 @@ export function AppHeader({
   title,
   greeting,
   showCurrency = false,
+  currencyLabel,
   showBell = true,
 }: {
   title?: string;
   greeting?: { hi: string; name: string };
   showCurrency?: boolean;
+  currencyLabel?: string;
   showBell?: boolean;
 }) {
   const styles = useStyles();
@@ -34,6 +36,7 @@ export function AppHeader({
     refetchInterval: 20000,
   });
   const unread = data?.unread ?? 0;
+  const displayedCurrency = user?.currency || currencyLabel || "No market";
 
   const onBell = () => {
     if (isGuest) router.push("/(auth)/login");
@@ -59,13 +62,14 @@ export function AppHeader({
       <View style={styles.right}>
         {showCurrency && (
           <View style={styles.currency}>
-            <View style={styles.flag}>
-              <View style={{ flex: 1, backgroundColor: "#008751" }} />
-              <View style={{ flex: 1, backgroundColor: "#FFFFFF" }} />
-              <View style={{ flex: 1, backgroundColor: "#008751" }} />
-            </View>
-            <Text style={styles.currencyText}>{user?.currency || "NGN"}</Text>
-            <Ionicons name="chevron-down" size={14} color={colors.onSurface} />
+            {displayedCurrency === "NGN" && (
+              <View style={styles.flag}>
+                <View style={{ flex: 1, backgroundColor: "#008751" }} />
+                <View style={{ flex: 1, backgroundColor: "#FFFFFF" }} />
+                <View style={{ flex: 1, backgroundColor: "#008751" }} />
+              </View>
+            )}
+            <Text style={styles.currencyText}>{displayedCurrency}</Text>
           </View>
         )}
         {showBell && (

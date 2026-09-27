@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import Ionicons from "@react-native-vector-icons/ionicons";
@@ -15,6 +15,7 @@ import { Market } from "@/src/lib/market";
 import { Modal, ScrollView } from "react-native";
 import { api, ApiError } from "@/src/api/client";
 import { startGoogleSignIn } from "@/src/lib/google-auth";
+import { afterAuthHref, tradeAuthHref, type TradeIntent } from "@/src/lib/trade-intent";
 
 function Input({ icon, ...props }: any) { const styles = useStyles(); const {colors} = useTheme(); return (
     <View style={styles.input}>
@@ -29,6 +30,7 @@ export default function Signup() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const tradeIntent = useLocalSearchParams<TradeIntent>();
   const toast = useToast();
   const { signup, loginWithGoogle, user, googleBusy } = useAuth();
 
@@ -45,8 +47,8 @@ export default function Signup() {
   const [gLoading, setGLoading] = useState(false);
 
   useEffect(() => {
-    if (user) router.replace(user.role === "admin" ? "/admin" : "/(tabs)");
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (user) router.replace(afterAuthHref(user.role, tradeIntent));
+  }, [user, tradeIntent.brand_id, tradeIntent.card_value_usd, tradeIntent.quantity]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onGoogle = async () => {
     setGLoading(true);
@@ -71,7 +73,7 @@ export default function Signup() {
     try {
       const u = await signup({ full_name: fullName.trim(), email: email.trim(), phone: phone.trim(), password, market_code: market.code, accepted_terms: agree });
       toast.show(`Welcome, ${u.full_name.split(" ")[0]}!`, "success");
-      router.replace("/(tabs)");
+      router.replace(afterAuthHref(u.role, tradeIntent));
     } catch (e) {
       toast.show(e instanceof ApiError ? e.message : "Sign up failed", "error");
     } finally {
@@ -133,7 +135,7 @@ export default function Signup() {
 
           <View style={styles.signupRow}>
             <Text style={styles.muted}>Already have an account? </Text>
-            <Pressable onPress={() => router.replace("/(auth)/login")} testID="signup-goto-login">
+            <Pressable onPress={() => router.replace(tradeAuthHref("login", tradeIntent))} testID="signup-goto-login">
               <Text style={styles.link}>Log In</Text>
             </Pressable>
           </View>

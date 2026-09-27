@@ -1,5 +1,5 @@
 import { useCardRates } from "@/src/lib/market";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, TextInput, Modal, ScrollView } from "react-native";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -14,6 +14,7 @@ import { useToast } from "@/src/components/toast";
 import { useAuth } from "@/src/context/auth";
 import { api, uploadImage, ApiError } from "@/src/api/client";
 import { formatNaira } from "@/src/lib/format";
+import { normalizeTradeIntent } from "@/src/lib/trade-intent";
 
 type SubmissionType = "physical" | "ecode";
 type Brand = {
@@ -27,8 +28,6 @@ type Brand = {
   submission_types?: SubmissionType[];
 };
 
-const QUICK = [50, 100, 200, 500];
-
 export default function Trade() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -37,7 +36,8 @@ export default function Trade() {
   const qc = useQueryClient();
   const { isGuest } = useAuth();
   const cardRates = useCardRates();
-  const { brand_id } = useLocalSearchParams<{ brand_id?: string }>();
+  const { brand_id, card_value_usd, quantity } = useLocalSearchParams<{ brand_id?: string; card_value_usd?: string; quantity?: string }>();
+  const lastAppliedBrandId = useRef<string | null>(null);
 
   const [type, setType] = useState<SubmissionType>("physical");
   const [brand, setBrand] = useState<Brand | null>(null);
@@ -59,17 +59,25 @@ export default function Trade() {
   });
 
   useEffect(() => {
-    if (!brand_id || !data?.brands.length || brand?.id === brand_id) return;
+    const intent = normalizeTradeIntent({ brand_id, card_value_usd, quantity });
+    if (!intent) return;
+    // A new navigation link must replace the prefilled form values.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setValue(intent.card_value_usd ?? "");
+    setQty(Number(intent.quantity ?? "1"));
+  }, [brand_id, card_value_usd, quantity]);
+
+  useEffect(() => {
+    if (!brand_id || !data?.brands.length || lastAppliedBrandId.current === brand_id) return;
     const selected = data.brands.find((b) => b.id === brand_id);
     if (!selected) return;
+    lastAppliedBrandId.current = brand_id;
     setBrand(selected);
     setSubcategory("");
     setCountry("");
     const selectedTypes: SubmissionType[] = selected.submission_types?.length ? selected.submission_types : ["physical", "ecode"];
-    if (!selectedTypes.includes(type)) {
-      setType(selectedTypes[0] ?? "physical");
-    }
-  }, [brand_id, data, brand?.id, type]);
+    setType((current) => selectedTypes.includes(current) ? current : selectedTypes[0] ?? "physical");
+  }, [brand_id, data]);
 
   const quote = useQuery({queryKey:["quote",brand?.id,value,qty],queryFn:()=>api.post<{payout_minor:number;unit_payout_minor:number;rate_version:number}>("/quotes",{brand_id:brand!.id,face_value:Number(value),quantity:qty}),enabled:!!brand&&Number(value)>0,refetchInterval:15000});
   const payout = quote.data?.payout_minor ?? 0;
