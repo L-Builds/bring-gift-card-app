@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
-import { Image } from "expo-image";
+import { Image } from "@/src/components/private-image";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";

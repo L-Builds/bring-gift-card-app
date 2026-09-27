@@ -3,7 +3,7 @@ import { View, Text, ScrollView, TextInput, Pressable, Modal } from "react-nativ
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Image } from "expo-image";
+import { Image } from "@/src/components/private-image";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";

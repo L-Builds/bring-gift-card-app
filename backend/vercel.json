@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "fastapi",
+  "functions": {"server.py": {"maxDuration": 300}},
+  "crons": [{"path": "/api/internal/cleanup-expired", "schedule": "0 * * * *"}]
+}

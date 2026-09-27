@@ -25,11 +25,9 @@ from fastapi.responses import Response, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
-from motor.motor_asyncio import AsyncIOMotorClient
+from persistence import Database, DuplicateKeyError, ReturnDocument
 from pydantic import BaseModel, EmailStr, Field
 from passlib.context import CryptContext
-from pymongo.errors import DuplicateKeyError
-from pymongo import ReturnDocument
 from money import Money
 from production import Production, encrypt, decrypt, ManualPaidIn
 from payout_providers import ProviderError
@@ -45,8 +43,7 @@ load_dotenv(ROOT_DIR / ".env")
 APP_ENV = os.environ.get("APP_ENV", "development").strip().lower()
 IS_PRODUCTION = APP_ENV == "production"
 
-MONGO_URL = os.environ["MONGO_URL"]
-DB_NAME = os.environ["DB_NAME"]
+DATABASE_URL = os.environ["DATABASE_URL"]
 JWT_SECRET = os.environ["JWT_SECRET"]
 if len(JWT_SECRET) < 32:
     raise RuntimeError("JWT_SECRET must be at least 32 characters")
@@ -93,8 +90,7 @@ KYC_ID_TYPES = {
 pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer = HTTPBearer(auto_error=False)
 
-client = AsyncIOMotorClient(MONGO_URL)
-db = client[DB_NAME]
+db = Database(DATABASE_URL, os.environ.get("DATABASE_SCHEMA", "public"))
 
 app = FastAPI(title="Bring Gift Card API", docs_url=None if IS_PRODUCTION else "/docs", redoc_url=None if IS_PRODUCTION else "/redoc")
 api = APIRouter(prefix="/api")
@@ -628,6 +624,13 @@ async def categories():
 # ===========================================================================
 # UPLOADS  (private; owner/admin read only)
 # ===========================================================================
+async def store_image(path, data):
+    if os.environ.get("S3_BUCKET"):
+        await run_in_threadpool(put_private, path, data)
+    else:
+        await run_in_threadpool(_put_object, path, data, "image/jpeg")
+
+
 @api.post("/uploads")
 async def upload_file(user: dict = Depends(current_user), file: UploadFile = File(...)):
     ext = (file.filename or "img.jpg").split(".")[-1].lower()[:5] or "jpg"
@@ -637,10 +640,7 @@ async def upload_file(user: dict = Depends(current_user), file: UploadFile = Fil
     data = await run_in_threadpool(clean_image, data)
     path = f"{APP_NAME}/uploads/{user['id']}/{new_id()}.jpg"
     try:
-        if os.environ.get("S3_BUCKET"):
-            await run_in_threadpool(put_private, path, data)
-        else:
-            await run_in_threadpool(_put_object, path, data, "image/jpeg")
+        await store_image(path, data)
     except Exception as e:
         logger.exception("upload failed")
         raise HTTPException(502, "Upload failed, please retry")
@@ -649,7 +649,7 @@ async def upload_file(user: dict = Depends(current_user), file: UploadFile = Fil
 
 
 @api.get("/files/{path:path}")
-async def get_file(path: str, creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer)):
+async def get_file(path: str, request: Request, creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer)):
     jwt_token = creds.credentials if creds else ""
     user = await _user_from_token(jwt_token) if jwt_token else None
     if not user:
@@ -671,7 +671,18 @@ async def get_file(path: str, creds: Optional[HTTPAuthorizationCredentials] = De
         content, ctype = await run_in_threadpool(get_private if os.environ.get("S3_BUCKET") else _get_object, path)
     except Exception:
         raise HTTPException(404, "File not found")
-    return Response(content=content, media_type=ctype, headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+    headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Accept-Ranges": "bytes"}
+    requested=request.headers.get("range")
+    if requested:
+        match=re.fullmatch(r"bytes=(\d+)-(\d+)",requested)
+        if not match:raise HTTPException(416,"Use a bounded byte range")
+        start,end=map(int,match.groups())
+        if start>=len(content) or end<start or end-start+1>3*1024*1024:
+            raise HTTPException(416,"Invalid or oversized byte range",headers={"Content-Range":f"bytes */{len(content)}"})
+        end=min(end,len(content)-1)
+        headers["Content-Range"]=f"bytes {start}-{end}/{len(content)}"
+        return Response(content=content[start:end+1],status_code=206,media_type=ctype,headers=headers)
+    return Response(content=content, media_type=ctype, headers=headers)
 
 
 # ===========================================================================
@@ -1526,47 +1537,15 @@ async def admin_kyc_reject(kyc_id: str, x: AdminReasonIn, admin: dict = Depends(
 # DATABASE STARTUP
 # ===========================================================================
 async def ensure_indexes():
-    """Create indexes only. Startup must never create users, balances, trades, or rates."""
-    await db.users.create_index("email", unique=True)
-    await db.users.create_index("id", unique=True)
-    await db.ledger.create_index("dedup_key", unique=True)
-    await db.ledger.create_index("user_id")
-    await db.brands.create_index("id", unique=True)
-    await db.trades.create_index("id", unique=True)
-    await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
-    await db.kyc_submissions.create_index([("user_id", 1), ("created_at", -1)])
-    await db.kyc_submissions.create_index("status")
-    await db.support_tickets.create_index([("user_id", 1), ("last_message_at", -1)])
-    await db.support_tickets.create_index("status")
-    await db.support_messages.create_index([("ticket_id", 1), ("created_at", 1)])
-    await db.users.create_index("referral_code")
-    await db.users.create_index("referred_by")
-    await db.users.create_index("phone", unique=True, partialFilterExpression={"phone": {"$type": "string", "$gt": ""}})
-    await db.withdrawals.create_index("id", unique=True)
-    await db.withdrawals.create_index([("user_id", 1), ("request_key", 1)], unique=True, partialFilterExpression={"request_key": {"$type": "string"}})
-    await db.markets.create_index("code", unique=True)
-    await db.payout_providers.create_index("id", unique=True)
-    await db.settings.create_index("id", unique=True)
-    await db.legal.create_index("id", unique=True)
-    await db.card_rates.create_index([("brand_id", 1), ("market_code", 1), ("face_value", 1)], unique=True)
-    await db.uploads.create_index("path", unique=True)
-    await db.abuse_counters.create_index("expires_at", expireAfterSeconds=0)
-    await db.password_resets.create_index("expires_at", expireAfterSeconds=0)
-    await db.rate_changes.create_index([("brand_id", 1), ("at", -1)])
+    """Compatibility name for scripts: verify applied SQL migrations, never run DDL."""
+    await db.check_schema()
 
 
 @app.on_event("startup")
 async def on_start():
-    hello = await db.command("hello")
-    if not hello.get("setName") and hello.get("msg") != "isdbgrid":
-        raise RuntimeError("MongoDB replica set or Atlas is required for atomic financial transactions")
+    await db.check_schema()
     if IS_PRODUCTION:
         encrypt("configuration-check")
-    try:
-        await ensure_indexes()
-    except Exception:
-        logger.exception("database index initialization failed")
-        raise
     if STORAGE_URL and OBJECT_STORAGE_KEY:
         try:
             await run_in_threadpool(_init_storage)
@@ -1581,6 +1560,8 @@ async def root():
 
 money = Money(sys.modules[__name__])
 production = Production(sys.modules[__name__])
+from upload_transport import router as upload_router
+app.include_router(upload_router(sys.modules[__name__]))
 app.include_router(production.router())
 app.include_router(api)
 app.add_middleware(
@@ -1589,9 +1570,10 @@ app.add_middleware(
     allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Range", "Accept-Ranges"],
 )
 
 
 @app.on_event("shutdown")
 async def shutdown():
-    client.close()
+    await db.close()

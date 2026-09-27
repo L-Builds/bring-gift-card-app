@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from server import db, client, ensure_indexes
+from server import db, ensure_indexes
 
 
 async def main():
@@ -12,7 +12,7 @@ async def main():
     for market in json.loads((Path(__file__).with_name("website_markets.json")).read_text(encoding="utf-8")):
         await db.markets.update_one({"code": market["code"]}, {"$setOnInsert": market}, upsert=True)
     print("Website markets installed without overwriting admin changes. No rates or accounts created.")
-    client.close()
+    await db.close()
 
 
 if __name__ == "__main__":

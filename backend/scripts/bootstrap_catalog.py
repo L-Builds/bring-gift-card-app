@@ -18,7 +18,7 @@ async def main():
         await s.db.brands.insert_one({**model.model_dump(), "id": s.new_id(), "slug": slug,
             "sort_order": index + 1, "created_at": s.now()})
     print("Website brand names imported inactive. Review card details and configure actual denomination rates before enabling.")
-    s.client.close()
+    await s.db.close()
 
 
 if __name__ == "__main__":

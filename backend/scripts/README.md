@@ -1,10 +1,12 @@
-# Operator scripts
-
-Run from backend with its virtual environment and .env or secret-manager variables configured.
-
-1. python scripts/bootstrap_markets.py — inserts missing website market definitions, preserves existing admin edits; no rates or users.
-2. python scripts/bootstrap_catalog.py — optional website brand names inserted inactive; no prices or invented card-origin restrictions.
-3. python scripts/create_admin.py --email YOUR_EMAIL — securely prompts for the first admin password; creates no account automatically. Prefer the prompt over a password CLI argument/history.
-4. python scripts/migrate_v110.py — read-only count report for an existing legacy NGN-only database. Back up and stop all writers before --apply. Adds currency metadata, encrypts old codes and registers owner-scoped uploaded paths. Does not recalculate money or import rates. Inspect duplicates if unique-index creation fails; do not delete ledger history to make indexes pass.
-
-Scripts require real configuration and are not automatic startup hooks. Read ../../DEPLOYMENT.md before use.
+# Operator scripts
+
+Run from backend using Python 3.12 and privately configured environment variables. Read ../../VERCEL-NEON.md and ../../NEON-MIGRATION.md.
+
+1. `python scripts/migrate.py`: transactional, checksum-verified PostgreSQL schema migrations via DATABASE_URL_UNPOOLED.
+2. `python scripts/export_mongo.py --output PRIVATE_NEW_DIRECTORY`: offline read-only exporter; optional pymongo dependency in a separate environment.
+3. `python scripts/import_snapshot.py PRIVATE_DIRECTORY`: full verified dry run, rolled back. Add --apply only for the intended empty target.
+4. `python scripts/bootstrap_markets.py`: missing website markets only, preserving admin changes. For new databases, not before importing.
+5. `python scripts/bootstrap_catalog.py`: optional inactive brand names, no sample rates.
+6. `python scripts/create_admin.py --email YOUR_EMAIL`: prompt for password, no automatic account creation.
+
+The old Mongo v1.1.0 upgrader is preserved in PROJECT BRAIN/history and must run with the original Mongo release before export when necessary. It is not a PostgreSQL migration. Runtime/bootstrap/admin scripts use PostgreSQL only.

@@ -6,7 +6,7 @@ from typing import Literal
 from cryptography.fernet import Fernet
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from pymongo import ReturnDocument
+from persistence import ReturnDocument
 from payout_providers import ADAPTERS, ProviderError
 
 
@@ -341,9 +341,24 @@ class Production:
         @api.get("/health/ready")
         async def ready():
             try:
-                await db.command("ping")
+                await db.ping()
             except Exception:
                 raise HTTPException(503, "Database unavailable")
             return {"status": "ready"}
+
+        @api.get("/internal/cleanup-expired", include_in_schema=False)
+        async def cleanup_expired(request: Request):
+            # PostgreSQL has no Mongo TTL monitor. Expiry is still checked on every
+            # token use; this authenticated cron only removes obsolete rows.
+            import hmac
+            secret = os.environ.get("CRON_SECRET", "")
+            if not secret or not hmac.compare_digest(request.headers.get("authorization", ""), "Bearer " + secret):
+                raise HTTPException(401, "Not authorized")
+            async def run(session):
+                resets = await db.password_resets.delete_many({"expires_at": {"$lt": s.now()}}, session=session)
+                counters = await db.abuse_counters.delete_many({"expires_at": {"$lt": s.now()}}, session=session)
+                uploads = await db.upload_sessions.delete_many({"expires_at": {"$lt": s.now()}}, session=session)
+                return {"password_resets": resets.deleted_count, "abuse_counters": counters.deleted_count, "upload_sessions": uploads.deleted_count}
+            return await db.transaction(run)
 
         return api

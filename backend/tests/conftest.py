@@ -49,3 +49,6 @@ def new_customer(http):
 
 def auth(t):
     return {"Authorization": f"Bearer {t}", "Content-Type": "application/json"}
+
+# Current acceptance suite uses one shared PostgreSQL fixture.
+from tests.pg_support import http, actors

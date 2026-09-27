@@ -79,11 +79,33 @@ export async function uploadImage(uri: string): Promise<string> {
   const token = await getToken();
   const name = `card_${Date.now()}.jpg`;
   const form = new FormData();
+  const chunkSize = 3 * 1024 * 1024;
+  let size: number;
+  let webBlob: Blob | undefined;
+  let nativeFile: import("expo-file-system").File | undefined;
   if (Platform.OS === "web") {
-    const blob = await (await fetch(uri)).blob();
-    form.append("file", blob, name);
+    webBlob = await (await fetch(uri)).blob();
+    size = webBlob.size;
+    form.append("file", webBlob, name);
   } else {
+    const { File } = await import("expo-file-system");
+    nativeFile = new File(uri);
+    size = nativeFile.size;
     form.append("file", { uri, name, type: "image/jpeg" } as any);
+  }
+  if (size > 12 * 1024 * 1024) throw new ApiError("Image too large (max 12MB)", 413);
+  if (size > chunkSize) {
+    const session = await api.post<{ id: string; chunk_size: number }>("/uploads/chunks", { size });
+    const bytes = nativeFile ? await nativeFile.bytes() : undefined;
+    for (let offset = 0, part = 0; offset < size; offset += chunkSize, part++) {
+      const body = webBlob ? await webBlob.slice(offset, offset + chunkSize).arrayBuffer()
+        : bytes!.slice(offset, offset + chunkSize).buffer as ArrayBuffer;
+      const result = await fetch(`${BASE}/uploads/chunks/${session.id}/${part}`, {
+        method: "PUT", headers: { "Content-Type": "application/octet-stream", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body,
+      });
+      if (!result.ok) throw new ApiError("Upload failed", result.status);
+    }
+    return (await api.post<{ path: string }>(`/uploads/chunks/${session.id}/complete`)).path;
   }
   const res = await fetch(`${BASE}/uploads`, {
     method: "POST",
@@ -98,4 +120,26 @@ export async function uploadImage(uri: string): Promise<string> {
 // Private image requests use Authorization headers, never JWTs in URLs.
 export function fileUrl(path: string, token: string | null): string {
   return `${BASE}/files/${path}`;
+}
+
+// Preserve private Authorization headers while keeping every response below the
+// Vercel gateway payload limit. No bearer credentials are ever put in a URL.
+export async function privateImageBlob(uri: string, headers: Record<string, string> = {}, signal?: AbortSignal): Promise<Blob> {
+  const parts: Blob[] = [];
+  const chunkSize = 3 * 1024 * 1024;
+  let offset = 0;
+  let contentType = "image/jpeg";
+  while (true) {
+    const response = await fetch(uri, { headers: { ...headers, Range: `bytes=${offset}-${offset + chunkSize - 1}` }, signal, cache: "no-store" });
+    if (!response.ok) throw new ApiError("Could not load private image", response.status);
+    contentType = response.headers.get("content-type") || contentType;
+    const chunk = await response.blob();
+    parts.push(chunk);
+    if (response.status === 200) break; // Existing hosts may return the full image.
+    const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(response.headers.get("content-range") || "");
+    if (!range || Number(range[1]) !== offset || chunk.size !== Number(range[2]) - offset + 1) throw new ApiError("Invalid image response", 502);
+    offset = Number(range[2]) + 1;
+    if (offset >= Number(range[3])) break;
+  }
+  return new Blob(parts, { type: contentType });
 }

@@ -12,7 +12,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 from datetime import datetime, timezone
 
-from motor.motor_asyncio import AsyncIOMotorClient
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from persistence import Database
 from passlib.context import CryptContext
 
 pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -35,10 +37,9 @@ def args():
 
 async def main():
     cfg = args()
-    mongo_url = os.environ.get("MONGO_URL", "").strip()
-    db_name = os.environ.get("DB_NAME", "").strip()
-    if not mongo_url or not db_name:
-        raise SystemExit("MONGO_URL and DB_NAME are required")
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    if not database_url:
+        raise SystemExit("DATABASE_URL is required")
 
     email = cfg.email.strip().lower()
     if not email:
@@ -47,8 +48,8 @@ async def main():
     if len(password) < 12 or len(password.encode("utf-8")) > 72:
         raise SystemExit("Admin password must be at least 12 characters and at most 72 UTF-8 bytes")
 
-    client = AsyncIOMotorClient(mongo_url)
-    db = client[db_name]
+    db = Database(database_url, os.environ.get("DATABASE_SCHEMA", "public"))
+    await db.check_schema()
     try:
         existing = await db.users.find_one({"email": email})
         if existing:
@@ -69,7 +70,7 @@ async def main():
         })
         print(f"Created admin: {email}")
     finally:
-        client.close()
+        await db.close()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
-"""Atomic ledger operations on a MongoDB replica set.
+"""Atomic ledger operations in PostgreSQL.
 
-The user revision write serializes concurrent wallet mutations. All financial
+A PostgreSQL user-row lock serializes concurrent wallet mutations. All financial
 records and notifications commit together; no balance cache becomes authority.
 Legacy *_kobo field names are retained and mean integer currency minor units.
 """
@@ -13,12 +13,10 @@ class Money:
         self.db = server.db
 
     async def transaction(self, callback):
-        async with await self.s.client.start_session() as session:
-            return await session.with_transaction(callback)
+        return await self.db.transaction(callback)
 
     async def lock_user(self, user_id, session):
-        result = await self.db.users.update_one({"id": user_id}, {"$inc": {"money_revision": 1}}, session=session)
-        if not result.matched_count:
+        if not await self.db.lock_user(user_id, session):
             raise HTTPException(404, "Customer not found")
 
     async def ledger(self, user_id, kind, amount, ref_type, ref_id, currency, session):
@@ -71,6 +69,8 @@ class Money:
             if not t:
                 raise HTTPException(404, "Trade not found")
             await self.lock_user(t["user_id"], session)
+            # Re-read and lock the state row after acquiring the wallet lock.
+            t = await self.db.trades.find_one({"id": trade_id}, session=session, for_update=True)
             if t["status"] == status and status in ("APPROVED", "REJECTED"):
                 return {"ok": True, "credited": False}
             if t["status"] not in ("PENDING_REVIEW", "NEED_MORE_INFO"):
@@ -94,6 +94,7 @@ class Money:
             if not w:
                 raise HTTPException(404, "Withdrawal not found")
             await self.lock_user(w["user_id"], session)
+            w = await self.db.withdrawals.find_one({"id": wid}, session=session, for_update=True)
             if w["status"] == status:
                 return {"ok": True}
             if w.get("provider_id") and w["provider_id"] != "manual" and not provider:
