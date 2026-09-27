@@ -72,7 +72,7 @@ Set these in backend Project Settings → Environment Variables for the intended
 
 `DATABASE_URL_UNPOOLED` belongs in the local/CI migration secret store, not the frontend and normally not the backend function environment. Payout API/webhook secrets remain encrypted in the database through authenticated Admin → Payout Providers. Existing adapters and webhook routes are unchanged.
 
-Deploy. Check `https://YOUR-BACKEND.vercel.app/api/health/ready`; a schema/connection failure must be resolved before testing the frontend. Do not expect a web homepage at the backend root.
+Deploy. Check `https://YOUR-BACKEND.vercel.app/api/health/ready`; a schema/connection failure must be resolved before testing the frontend. Once the backend release with the root redirect is deployed, visiting `https://bring-gift-card-api.vercel.app/` opens the production web app. API requests still use `/api/*`.
 
 ## 4. Create/configure the frontend Vercel project
 
@@ -82,9 +82,9 @@ Select the frontend root above, framework **Other**, Node **22.x**. Let the chec
 - Build: `npm run build:web`
 - Output: `dist`
 
-The production web build needs no `EXPO_PUBLIC_BACKEND_URL`. It calls `/api` on its own origin, and the first rewrite in `frontend/vercel.json` forwards `/api/*` to `https://bring-gift-card-api.vercel.app/api/*`. If the backend domain changes, update that destination and redeploy the frontend. Local Expo development and native builds still use `EXPO_PUBLIC_BACKEND_URL` from `frontend/.env.example`. Set the optional Google browser bridge variable only when that integration is configured. Never add backend secrets as `EXPO_PUBLIC_*` variables.
+The production web build needs no `EXPO_PUBLIC_BACKEND_URL`. It calls `/api` on its own origin. The first rewrite in `frontend/vercel.json` forwards `/api/*` to `https://bring-gift-card-api.vercel.app/api/*` only for the canonical production host `bring-gift-card-app.vercel.app`. Preview hosts have no `/api` rewrite and return 404 for that path, so Preview builds cannot write to the production API through the app's same-origin proxy. If the backend or canonical production domain changes, update the destination or host condition and redeploy the frontend. Other production aliases also need an explicit host condition before their API calls will work. Local Expo development and native builds still use `EXPO_PUBLIC_BACKEND_URL` from `frontend/.env.example`. Set the optional Google browser bridge variable only when that integration is configured. Never add backend secrets as `EXPO_PUBLIC_*` variables.
 
-Set the backend's CORS and reset-link URL to the frontend's actual stable domain, then redeploy the backend. Prefer stable domains over a wildcard for arbitrary preview URLs. The checked-in `/api` rewrite currently sends both Preview and Production frontend deployments to the production API. Use Preview for read-only UI checks only; set up a separate staging API, database branch and environment-specific routing before running state-changing staging tests. Deployment Protection must allow the browser to reach the API; an intercepted login page is not a CORS/API response. Provider webhook testing also needs a reachable backend endpoint.
+Set the backend's CORS and reset-link URL to the frontend's actual stable domain, then redeploy the backend. Prefer stable domains over a wildcard for arbitrary preview URLs. Preview can be used for read-only UI checks. Set up a separate staging API, database branch and environment-specific routing before testing Preview flows that need an API. Deployment Protection must allow the browser to reach the API; an intercepted login page is not a CORS/API response. Provider webhook testing also needs a reachable backend endpoint.
 
 The frontend's SPA rewrite handles direct navigation and refresh on nested routes. Keep the `/api` proxy before the SPA fallback. Assets and `/api` are excluded from that fallback.
 

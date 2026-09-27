@@ -1,5 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { normalizeBackendUrl, apiBaseUrl, validateGoogleUrl } = require("../config/public-env");
 test("normalizes staging origin and retains a custom port", () => {
   assert.equal(normalizeBackendUrl(" https://api.staging.test:8443/// ", {deployed:true}), "https://api.staging.test:8443");
@@ -25,4 +27,18 @@ test("production web uses same-origin API without a build-time backend URL", () 
   assert.equal(apiBaseUrl("http://127.0.0.1:8000", {web:true, dev:true}), "http://127.0.0.1:8000/api");
   assert.equal(apiBaseUrl("https://api.example.test", {web:false, dev:false}), "https://api.example.test/api");
   assert.throws(() => apiBaseUrl(undefined, {web:false, dev:false}), /required/);
+});
+
+test("only the canonical production host proxies API calls to the production backend", () => {
+  const config = JSON.parse(fs.readFileSync(path.join(__dirname, "../vercel.json"), "utf8"));
+  const apiRoutes = config.rewrites.filter((route) => route.source.startsWith("/api"));
+  assert.equal(apiRoutes.length, 1);
+  assert.equal(apiRoutes[0].source, "/api/:path*");
+  assert.equal(apiRoutes[0].destination, "https://bring-gift-card-api.vercel.app/api/:path*");
+  assert.deepEqual(apiRoutes[0].has, [{ type: "host", value: "bring-gift-card-app.vercel.app" }]);
+
+  const spaFallback = config.rewrites.at(-1);
+  const fallbackPattern = new RegExp(`^${spaFallback.source}$`);
+  assert.equal(fallbackPattern.test("/api/health/ready"), false);
+  assert.equal(fallbackPattern.test("/rates"), true);
 });
