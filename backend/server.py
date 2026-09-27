@@ -21,7 +21,7 @@ import jwt
 import httpx
 import requests
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, UploadFile, File, Query, Request
-from fastapi.responses import Response, JSONResponse
+from fastapi.responses import Response, JSONResponse, RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
@@ -94,6 +94,11 @@ db = Database(DATABASE_URL, os.environ.get("DATABASE_SCHEMA", "public"))
 
 app = FastAPI(title="Bring Gift Card API", docs_url=None if IS_PRODUCTION else "/docs", redoc_url=None if IS_PRODUCTION else "/redoc")
 api = APIRouter(prefix="/api")
+
+
+@app.get("/", include_in_schema=False)
+async def open_app():
+    return RedirectResponse("https://bring-gift-card-app.vercel.app/", status_code=307)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("bgc")
