@@ -11,12 +11,12 @@ function client(fetch) {
   const source = fs.readFileSync(path.join(__dirname, '../src/api/client.ts'), 'utf8');
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
   const exports = {};
-  vm.runInNewContext(compiled, { exports, fetch, Blob, FormData, Headers, AbortController, setTimeout, clearTimeout,
+  vm.runInNewContext(compiled, { exports, fetch, Blob, FormData, Headers, AbortController, setTimeout, clearTimeout, __DEV__: false,
     process: { env: { EXPO_PUBLIC_BACKEND_URL: 'https://staging.invalid' } },
     require(name) {
       if (name === 'react-native') return { Platform: { OS: 'web' } };
       if (name === '@/src/utils/storage') return { storage: { secureGet: async () => 'test-token' } };
-      if (name === '@/config/public-env') return { normalizeBackendUrl: value => value };
+      if (name === '@/config/public-env') return require('../config/public-env');
       throw new Error('Unexpected dependency: ' + name);
     },
   });

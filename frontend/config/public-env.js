@@ -18,6 +18,13 @@ function normalizeBackendUrl(value, { deployed = false } = {}) {
   return url.origin;
 }
 
+function apiBaseUrl(value, { web = false, dev = false } = {}) {
+  // Production web requests stay on the frontend origin and Vercel forwards /api.
+  // Expo dev and native builds still need the explicit backend origin.
+  if (web && !dev) return "/api";
+  return `${normalizeBackendUrl(value)}/api`;
+}
+
 function validateGoogleUrl(value, { deployed = false } = {}) {
   if (!(value || "").trim()) return;
   let url;
@@ -27,4 +34,4 @@ function validateGoogleUrl(value, { deployed = false } = {}) {
   }
 }
 
-module.exports = { normalizeBackendUrl, validateGoogleUrl };
+module.exports = { normalizeBackendUrl, apiBaseUrl, validateGoogleUrl };

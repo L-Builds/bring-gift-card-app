@@ -1,14 +1,13 @@
 import { useCardRates, rateLabel } from "@/src/lib/market";
 import React, { useMemo, useState } from "react";
 import { View, Text, TextInput, Pressable, FlatList, ScrollView, Modal } from "react-native";
-import { Redirect, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { Image } from "expo-image";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { BrandMonogram, LoadingView, EmptyState } from "@/src/components/ui";
-import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
 import { formatNaira } from "@/src/lib/format";
 
@@ -42,15 +41,13 @@ export default function Rates() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { isGuest } = useAuth();
   const [chip, setChip] = useState("All Cards");
   const [q, setQ] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
 
   const { data: categoryData } = useQuery({
     queryKey: ["brand-categories"],
-    queryFn: () => api.get<{ categories: string[] }>("/categories"),
-    enabled: !isGuest,
+    queryFn: () => api.get<{ categories: string[] }>("/categories", false),
   });
 
   const chips = useMemo(() => {
@@ -67,13 +64,10 @@ export default function Rates() {
   if (category) params.set("category", category);
   if (q.trim()) params.set("q", q.trim());
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["rates", chip, q],
-    queryFn: () => api.get<{ brands: Brand[] }>(`/brands?${params.toString()}`),
-    enabled: !isGuest,
+    queryFn: () => api.get<{ brands: Brand[] }>(`/brands?${params.toString()}`, false),
   });
-
-  if (isGuest) return <Redirect href="/(auth)/login" />;
 
   const chooseFilter = (value: string) => {
     setChip(value);
@@ -139,7 +133,9 @@ export default function Rates() {
           showsVerticalScrollIndicator={false}
           style={styles.listCard}
           contentContainerStyle={(data?.brands?.length ?? 0) === 0 ? styles.emptyList : undefined}
-          ListEmptyComponent={<EmptyState icon="search" title="No cards found" subtitle="Try a different search or category." />}
+          ListEmptyComponent={<EmptyState icon="search"
+            title={isError ? "Could not load cards" : q.trim() || chip !== "All Cards" ? "No cards found" : "No cards published yet"}
+            subtitle={isError ? "Please try again shortly." : q.trim() || chip !== "All Cards" ? "Try a different search or category." : "Published cards and rates will appear here."} />}
           renderItem={({ item, index }) => (
             <Pressable
               onPress={() => router.push(`/card/${item.id}`)}

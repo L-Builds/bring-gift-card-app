@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { normalizeBackendUrl, validateGoogleUrl } = require("../config/public-env");
+const { normalizeBackendUrl, apiBaseUrl, validateGoogleUrl } = require("../config/public-env");
 test("normalizes staging origin and retains a custom port", () => {
   assert.equal(normalizeBackendUrl(" https://api.staging.test:8443/// ", {deployed:true}), "https://api.staging.test:8443");
 });
@@ -17,4 +17,12 @@ test("Vercel requires external HTTPS; local development remains possible", () =>
 test("optional Google bridge is blank or a valid URL", () => {
   validateGoogleUrl(""); validateGoogleUrl("https://auth.staging.test/login", {deployed:true});
   for (const value of ["http://auth.test", "invalid", "https://user:secret@auth.test", "https://auth.test?redirect=x"]) assert.throws(() => validateGoogleUrl(value, {deployed:true}));
+});
+
+test("production web uses same-origin API without a build-time backend URL", () => {
+  assert.equal(apiBaseUrl(undefined, {web:true, dev:false}), "/api");
+  assert.equal(apiBaseUrl("https://old-api.test", {web:true, dev:false}), "/api");
+  assert.equal(apiBaseUrl("http://127.0.0.1:8000", {web:true, dev:true}), "http://127.0.0.1:8000/api");
+  assert.equal(apiBaseUrl("https://api.example.test", {web:false, dev:false}), "https://api.example.test/api");
+  assert.throws(() => apiBaseUrl(undefined, {web:false, dev:false}), /required/);
 });

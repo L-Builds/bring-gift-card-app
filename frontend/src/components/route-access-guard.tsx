@@ -6,7 +6,8 @@ function guestRouteIsPublic(segments: string[]) {
   if (segments.length === 0 || (segments.length === 1 && segments[0] === "index")) return true;
   if (segments[0] === "legal") return true;
   if (segments[0] === "(auth)") return true;
-  if (segments[0] === "(tabs)" && (!segments[1] || segments[1] === "index")) return true;
+  if (segments[0] === "(tabs)" && (!segments[1] || segments[1] === "index" || segments[1] === "rates")) return true;
+  if (segments[0] === "card") return true;
   if (segments.length === 1 && (segments[0] === "support" || segments[0] === "trading-guidelines")) return true;
   return false;
 }

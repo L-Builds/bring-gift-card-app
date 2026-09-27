@@ -1,10 +1,10 @@
 import { Platform } from "react-native";
 import { storage } from "@/src/utils/storage";
-import { normalizeBackendUrl } from "@/config/public-env";
+import { apiBaseUrl } from "@/config/public-env";
 
-// Keep direct process.env access: Expo replaces this public value at build time.
-const BACKEND_URL = normalizeBackendUrl(process.env.EXPO_PUBLIC_BACKEND_URL);
-const BASE = `${BACKEND_URL}/api`;
+// Expo replaces this public value at build time. Production web uses the
+// same-origin Vercel /api proxy; native and local Expo dev use an explicit URL.
+const BASE = apiBaseUrl(process.env.EXPO_PUBLIC_BACKEND_URL, { web: Platform.OS === "web", dev: __DEV__ });
 export const TOKEN_KEY = "bgc_auth_token";
 
 let memToken: string | null = null;

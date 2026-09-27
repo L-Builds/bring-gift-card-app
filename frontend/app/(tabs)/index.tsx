@@ -40,7 +40,7 @@ export default function Home() {
   const { user, isGuest, balanceKobo, refresh } = useAuth();
   const [hideBalance, setHideBalance] = useState(false);
 
-  const { data, isLoading, refetch, isRefetching } = useQuery({
+  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ["brands", "popular"],
     queryFn: () => api.get<{ brands: Brand[] }>("/brands?popular=true", false),
   });
@@ -69,7 +69,7 @@ export default function Home() {
               <Text style={styles.heroHello}>Hello,</Text>
               <Text style={styles.heroTitle}>Welcome to <Text style={styles.heroAccent}>Bring Gift Card</Text></Text>
               <Text style={styles.heroSub}>Trade Gift Cards Instantly & Securely</Text>
-              <Pressable style={styles.heroBtn} onPress={gate("/(tabs)/rates")} testID="home-check-rates">
+              <Pressable style={styles.heroBtn} onPress={() => router.push("/(tabs)/rates")} testID="home-check-rates">
                 <Text style={styles.heroBtnText}>Check Rates</Text>
                 <Ionicons name="arrow-forward" size={20} color={colors.onSurface} />
               </Pressable>
@@ -108,7 +108,7 @@ export default function Home() {
                 <Text style={styles.sectionSub}>Top gift cards traded on Bring Gift Card</Text>
               </View>
             </View>
-            <Pressable onPress={gate("/(tabs)/rates")} style={styles.viewAll} testID="home-view-all">
+            <Pressable onPress={() => router.push("/(tabs)/rates")} style={styles.viewAll} testID="home-view-all">
               <Text style={styles.viewAllText}>View All</Text>
               <Ionicons name="chevron-forward" size={16} color={colors.brandLink} />
             </Pressable>
@@ -118,10 +118,11 @@ export default function Home() {
             <LoadingView />
           ) : (
             <View style={styles.brandList}>
+              {(data?.brands ?? []).length === 0 && <Text style={styles.noBrands}>{isError ? "Could not load gift cards. Pull down to retry." : "No gift cards published yet."}</Text>}
               {(data?.brands ?? []).map((b, i, list) => (
                 <Pressable
                   key={b.id}
-                  onPress={gate(`/card/${b.id}`)}
+                  onPress={() => router.push(`/card/${b.id}`)}
                   style={[styles.brandRow, i < list.length - 1 && styles.brandDivider]}
                   testID={`home-brand-${b.id}`}
                 >
@@ -223,6 +224,7 @@ const useStyles = makeStyles((colors) => ({
   viewAll: { flexDirection: "row", alignItems: "center", gap: 2, marginLeft: spacing.sm },
   viewAllText: { color: colors.brandLink, fontWeight: "700", fontSize: 13.5 },
   brandList: { paddingHorizontal: spacing.lg },
+  noBrands: { paddingVertical: spacing.xl, textAlign: "center", color: colors.muted },
   brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 57 },
   brandDivider: { borderBottomWidth: 1, borderBottomColor: colors.divider },
   brandName: { flex: 1, fontSize: 14.5, fontWeight: "600", color: colors.onSurface },

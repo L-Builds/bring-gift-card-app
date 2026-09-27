@@ -7,7 +7,7 @@ import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, spacing } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 
-const PROTECTED = ["rates", "trade", "transactions", "profile"];
+const PROTECTED = ["trade", "transactions", "profile"];
 
 const TABS: { name: string; label: string; icon: any; iconActive: any }[] = [
   { name: "index", label: "Home", icon: "home-outline", iconActive: "home" },
