@@ -78,24 +78,18 @@ export default function Home() {
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
       >
         {isGuest ? (
-          <LinearGradient colors={[colors.brandDeep, colors.brandPrimary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
-            <Image source={require("../../assets/home/hero-card-art.png")} style={styles.heroArt} contentFit="cover" />
-            <LinearGradient
-              colors={["#2548AE", "rgba(37,72,174,0)"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.heroBlend}
-            />
+          <View style={styles.hero}>
+            <Image source={require("../../assets/home/hero-card-art-wide.png")} style={styles.heroArt} contentFit="cover" />
             <View style={styles.heroCopy}>
               <Text style={styles.heroHello}>Hello,</Text>
-              <Text style={styles.heroTitle}>Welcome to <Text style={styles.heroAccent}>Bring Gift Card</Text></Text>
-              <Text style={styles.heroSub}>Trade Gift Cards Instantly & Securely</Text>
+              <Text style={styles.heroTitle}>Welcome to{"\n"}<Text style={styles.heroAccent}>Bring Gift Card</Text></Text>
+              <Text style={styles.heroSub}>Trade Gift Cards Instantly &{"\n"}Securely</Text>
               <Pressable style={styles.heroBtn} onPress={() => router.push("/(tabs)/rates")} testID="home-check-rates">
                 <Text style={styles.heroBtnText}>Check Rates</Text>
                 <Ionicons name="arrow-forward" size={20} color={colors.onSurface} />
               </Pressable>
             </View>
-          </LinearGradient>
+          </View>
         ) : (
           <View testID="home-balance-card">
             <LinearGradient colors={[colors.brandDeep, colors.brandPrimary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.balanceCard}>
@@ -173,7 +167,7 @@ export default function Home() {
 
         <Pressable onPress={gate("/(tabs)/trade")} testID="home-start-trading">
           <View style={styles.promo}>
-            <Image source={require("../../assets/home/promo-card-art.png")} style={styles.promoArt} contentFit="cover" />
+            <Image source={require("../../assets/home/promo-card-art-clean.png")} style={styles.promoArt} contentFit="contain" contentPosition="right center" />
             <View style={styles.promoCopy}>
               <Text style={styles.promoTitle}>Turn Your Gift Cards</Text>
               <Text style={[styles.promoTitle, { color: colors.brandPrimary }]}>Into Real Value</Text>
@@ -193,22 +187,19 @@ export default function Home() {
 const useStyles = makeStyles((colors) => ({
   scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxxl },
   hero: {
-    minHeight: 174,
+    minHeight: 188,
     borderRadius: radius.xl,
     overflow: "hidden",
     marginTop: spacing.xs,
     position: "relative",
+    backgroundColor: colors.brandDeep,
   },
-  // The art file has its own blue background. Slightly overlap it and fade
-  // the left edge so the hero reads as one card instead of two panels joined
-  // by a hard vertical seam.
-  heroArt: { position: "absolute", right: -1, top: 0, width: "54%", height: "100%" },
-  heroBlend: { position: "absolute", right: "44%", top: 0, bottom: 0, width: 72, zIndex: 1 },
-  heroCopy: { paddingHorizontal: spacing.xl, paddingVertical: spacing.xl, width: "64%", zIndex: 2 },
+  heroArt: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, width: "100%", height: "100%" },
+  heroCopy: { paddingHorizontal: spacing.xl, paddingVertical: spacing.xl, width: "52%", zIndex: 2 },
   heroHello: { color: "rgba(255,255,255,0.92)", fontSize: 15 },
-  heroTitle: { color: colors.onBrandPrimary, fontSize: 20, fontWeight: "800", marginTop: 2, lineHeight: 25 },
+  heroTitle: { color: colors.onBrandPrimary, fontSize: 20, fontWeight: "800", marginTop: 2, lineHeight: 24 },
   heroAccent: { color: "#22D3EE" },
-  heroSub: { color: "rgba(255,255,255,0.94)", marginTop: 6, fontSize: 12.5 },
+  heroSub: { color: "rgba(255,255,255,0.94)", marginTop: 7, fontSize: 12.5, lineHeight: 18 },
   heroBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -271,17 +262,16 @@ const useStyles = makeStyles((colors) => ({
   brandRight: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   brandRate: { fontSize: 13.5, fontWeight: "600", color: colors.onSurface },
   promo: {
-    minHeight: 126,
+    minHeight: 142,
     borderRadius: radius.xl,
     overflow: "hidden",
     marginTop: spacing.lg,
-    backgroundColor: "#EAF6FF",
+    backgroundColor: "#F2F8FF",
+    borderWidth: 1,
+    borderColor: "#E4EEF9",
     position: "relative",
   },
-  // The promo artwork contains a narrow white strip at its top edge. Pull the
-  // image upward inside the clipped card so that strip stays outside the
-  // visible area and the artwork blends into the light-blue background.
-  promoArt: { position: "absolute", right: 0, top: -14, width: "58%", height: "112%" },
+  promoArt: { position: "absolute", right: 0, top: 4, width: "57%", height: "100%" },
   promoCopy: { width: "58%", paddingHorizontal: spacing.xl, paddingVertical: spacing.lg, zIndex: 2 },
   promoTitle: { fontSize: 18, fontWeight: "800", color: colors.onSurface, lineHeight: 22 },
   promoSub: { color: colors.muted, marginTop: 4, fontWeight: "500", fontSize: 11.5 },
