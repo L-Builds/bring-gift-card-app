@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -29,6 +29,7 @@ export default function Login() {
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [gLoading, setGLoading] = useState(false);
+  const webInputReset = Platform.OS === "web" ? ({ outlineStyle: "none", outlineWidth: 0, boxShadow: "none" } as any) : undefined;
 
   useEffect(() => {
     if (user) router.replace(afterAuthHref(user.role, tradeIntent));
@@ -106,7 +107,7 @@ export default function Login() {
           <View style={styles.input}>
             <Ionicons name={tab === "email" ? "mail-outline" : "call-outline"} size={20} color={colors.muted} />
             <TextInput
-              style={styles.inputText}
+              style={[styles.inputText, webInputReset]}
               placeholder={tab === "email" ? "Enter your email" : "Enter your phone number"}
               placeholderTextColor={colors.muted}
               keyboardType={tab === "email" ? "email-address" : "phone-pad"}
@@ -121,7 +122,7 @@ export default function Login() {
           <View style={styles.input}>
             <Ionicons name="lock-closed-outline" size={20} color={colors.muted} />
             <TextInput
-              style={styles.inputText}
+              style={[styles.inputText, webInputReset]}
               placeholder="Enter password"
               placeholderTextColor={colors.muted}
               secureTextEntry={!show}
