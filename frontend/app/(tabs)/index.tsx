@@ -80,6 +80,12 @@ export default function Home() {
         {isGuest ? (
           <LinearGradient colors={[colors.brandDeep, colors.brandPrimary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
             <Image source={require("../../assets/home/hero-card-art.png")} style={styles.heroArt} contentFit="cover" />
+            <LinearGradient
+              colors={["#2548AE", "rgba(37,72,174,0)"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.heroBlend}
+            />
             <View style={styles.heroCopy}>
               <Text style={styles.heroHello}>Hello,</Text>
               <Text style={styles.heroTitle}>Welcome to <Text style={styles.heroAccent}>Bring Gift Card</Text></Text>
@@ -193,7 +199,11 @@ const useStyles = makeStyles((colors) => ({
     marginTop: spacing.xs,
     position: "relative",
   },
-  heroArt: { position: "absolute", right: 0, top: 0, width: "48%", height: "100%" },
+  // The art file has its own blue background. Slightly overlap it and fade
+  // the left edge so the hero reads as one card instead of two panels joined
+  // by a hard vertical seam.
+  heroArt: { position: "absolute", right: -1, top: 0, width: "54%", height: "100%" },
+  heroBlend: { position: "absolute", right: "44%", top: 0, bottom: 0, width: 72, zIndex: 1 },
   heroCopy: { paddingHorizontal: spacing.xl, paddingVertical: spacing.xl, width: "64%", zIndex: 2 },
   heroHello: { color: "rgba(255,255,255,0.92)", fontSize: 15 },
   heroTitle: { color: colors.onBrandPrimary, fontSize: 20, fontWeight: "800", marginTop: 2, lineHeight: 25 },
@@ -268,7 +278,10 @@ const useStyles = makeStyles((colors) => ({
     backgroundColor: "#EAF6FF",
     position: "relative",
   },
-  promoArt: { position: "absolute", right: 0, top: 0, width: "58%", height: "100%" },
+  // The promo artwork contains a narrow white strip at its top edge. Pull the
+  // image upward inside the clipped card so that strip stays outside the
+  // visible area and the artwork blends into the light-blue background.
+  promoArt: { position: "absolute", right: 0, top: -14, width: "58%", height: "112%" },
   promoCopy: { width: "58%", paddingHorizontal: spacing.xl, paddingVertical: spacing.lg, zIndex: 2 },
   promoTitle: { fontSize: 18, fontWeight: "800", color: colors.onSurface, lineHeight: 22 },
   promoSub: { color: colors.muted, marginTop: 4, fontWeight: "500", fontSize: 11.5 },
