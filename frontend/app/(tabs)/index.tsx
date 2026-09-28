@@ -167,7 +167,7 @@ export default function Home() {
 
         <Pressable onPress={gate("/(tabs)/trade")} testID="home-start-trading">
           <View style={styles.promo}>
-            <Image source={require("../../assets/home/promo-card-art-clean.png")} style={styles.promoArt} contentFit="contain" contentPosition="right center" />
+            <Image source={require("../../assets/home/promo-card-art-reference.png")} style={styles.promoArt} contentFit="fill" />
             <View style={styles.promoCopy}>
               <Text style={styles.promoTitle}>Turn Your Gift Cards</Text>
               <Text style={[styles.promoTitle, { color: colors.brandPrimary }]}>Into Real Value</Text>
@@ -271,7 +271,7 @@ const useStyles = makeStyles((colors) => ({
     borderColor: "#E4EEF9",
     position: "relative",
   },
-  promoArt: { position: "absolute", right: 0, top: 4, width: "57%", height: "100%" },
+  promoArt: { position: "absolute", right: 0, top: 0, width: "58%", height: "100%" },
   promoCopy: { width: "58%", paddingHorizontal: spacing.xl, paddingVertical: spacing.lg, zIndex: 2 },
   promoTitle: { fontSize: 18, fontWeight: "800", color: colors.onSurface, lineHeight: 22 },
   promoSub: { color: colors.muted, marginTop: 4, fontWeight: "500", fontSize: 11.5 },
