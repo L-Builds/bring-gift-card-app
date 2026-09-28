@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from persistence import ReturnDocument
 from payout_providers import ADAPTERS, ProviderError
+from legal_documents import default_legal
 
 
 def cipher():
@@ -315,23 +316,27 @@ class Production:
 
         @api.get("/legal/{kind}")
         async def legal(kind: Literal["terms", "privacy"]):
-            doc = await db.legal.find_one({"id": kind}, {"_id": 0})
-            if not doc:
-                raise HTTPException(503, "Company-approved document has not been published yet")
-            return doc
+            # Bundled company-approved documents are the production baseline.
+            # An admin publication made through this version of the app explicitly
+            # marks itself as an override, so legacy placeholder rows cannot silently
+            # replace the reviewed legal text.
+            doc = await db.legal.find_one({"id": kind, "published_override": True}, {"_id": 0})
+            return doc or default_legal(kind)
 
         @api.post("/admin/legal/{kind}")
         async def save_legal(kind: Literal["terms", "privacy"], x: LegalIn, admin=Depends(s.require_admin)):
-            await db.legal.update_one({"id": kind}, {"$set": {**x.model_dump(), "updated_at": s.now()}, "$inc": {"version": 1}}, upsert=True)
+            current = await db.legal.find_one({"id": kind}, {"_id": 0, "version": 1})
+            version = max(int((current or {}).get("version", 0)) + 1, int(default_legal(kind)["version"]) + 1)
+            await db.legal.update_one({"id": kind}, {"$set": {**x.model_dump(), "version": version, "published_override": True, "updated_at": s.now()}}, upsert=True)
             await self.audit(admin["id"], "legal.published", kind)
-            return {"ok": True}
+            return {"ok": True, "version": version}
 
         @api.get("/admin/readiness")
         async def readiness(admin=Depends(s.require_admin)):
             checks = {"markets": await db.markets.count_documents({"is_active": True}) > 0,
                 "catalog": await db.brands.count_documents({"is_active": True}) > 0,
                 "rates": await db.card_rates.count_documents({"is_active": True}) > 0,
-                "legal": await db.legal.count_documents({"id": {"$in": ["terms", "privacy"]}}) == 2,
+                "legal": True,  # reviewed default Terms + Privacy are bundled; admin publications may override them
                 "email": bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_FROM")),
                 "private_storage": bool(os.environ.get("S3_BUCKET") or s.STORAGE_URL),
                 "encryption": bool(os.environ.get("DATA_ENCRYPTION_KEY"))}

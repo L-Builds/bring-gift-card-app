@@ -32,6 +32,7 @@ from money import Money
 from production import Production, encrypt, decrypt, ManualPaidIn
 from payout_providers import ProviderError
 from private_services import clean_image, put_private, get_private, send_reset
+from legal_documents import default_legal
 from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).parent
@@ -469,9 +470,9 @@ async def signup(x: SignupIn):
     if not market:
         raise HTTPException(422, "Select an available country")
     if not x.accepted_terms:
-        raise HTTPException(422, "Accept the Terms and Privacy Policy to register")
-    if IS_PRODUCTION and await db.legal.count_documents({"id": {"$in": ["terms", "privacy"]}}) != 2:
-        raise HTTPException(503, "Registration opens after company legal documents are published")
+        raise HTTPException(422, "Accept the Terms of Service and acknowledge the Privacy Policy to register")
+    terms_doc = await db.legal.find_one({"id": "terms", "published_override": True}, {"_id": 0}) or default_legal("terms")
+    privacy_doc = await db.legal.find_one({"id": "privacy", "published_override": True}, {"_id": 0}) or default_legal("privacy")
     email = str(x.email).strip().lower()
     phone = x.phone.strip()
     if await db.users.find_one({"email": email}):
@@ -486,7 +487,8 @@ async def signup(x: SignupIn):
     user = {
         "id": new_id(), "full_name": x.full_name.strip(), "email": email,
         "phone": phone, "password_hash": hash_pw(x.password),
-        "role": "customer", "country": market["name"], "market_code": market["code"], "currency": market["currency"], "minor_digits": market["minor_digits"], "terms_accepted_at": now(), "kyc_status": "unverified",
+        "role": "customer", "country": market["name"], "market_code": market["code"], "currency": market["currency"], "minor_digits": market["minor_digits"],
+        "terms_accepted_at": now(), "terms_version": int(terms_doc.get("version", 1)), "privacy_version": int(privacy_doc.get("version", 1)), "kyc_status": "unverified",
         "notifications_enabled": True, "disabled": False,
         "referral_code": "BGC" + uuid.uuid4().hex[:6].upper(), "created_at": now(),
         "referred_by": referrer["id"] if referrer else None,

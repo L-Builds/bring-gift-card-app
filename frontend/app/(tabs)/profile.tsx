@@ -72,7 +72,7 @@ export default function Profile() {
         <View style={styles.group}>
           <Row icon="notifications" label="Notifications" onPress={() => router.push("/notifications")} />
           <Row icon="headset" label="Help & Support" onPress={() => router.push("/support")} />
-          <Row icon="document-text" label="Terms & Privacy" onPress={() => router.push("/legal/terms")} />
+          <Row icon="document-text" label="Legal & Privacy" onPress={() => router.push("/legal/terms")} />
           <Row icon="shield-checkmark" label="Security" onPress={() => router.push("/security/pin")} last />
         </View>
 

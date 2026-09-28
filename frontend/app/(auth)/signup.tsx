@@ -67,7 +67,7 @@ export default function Signup() {
   const onSignup = async () => {
     if (!fullName.trim() || !email.trim() || !phone.trim() || !password) return toast.show("Please fill in all fields", "error");
     if (password.length < 10) return toast.show("Password must be at least 10 characters", "error");
-    if (!agree) return toast.show("Please accept the Terms & Privacy Policy", "error");
+    if (!agree) return toast.show("Please accept the Terms of Service", "error");
     if (!market) return toast.show("Select your country", "error");
     setLoading(true);
     try {
@@ -127,7 +127,7 @@ export default function Signup() {
               {agree && <Ionicons name="checkmark" size={14} color={colors.onBrandPrimary} />}
             </View>
             <Text style={styles.agreeText}>
-              By signing up, you agree to our <Text style={styles.policyText} onPress={()=>router.push("/legal/privacy")}>Privacy Policy</Text> and <Text style={styles.policyText} onPress={()=>router.push("/legal/terms")}>Terms & Conditions</Text>
+              I agree to the <Text style={styles.policyText} onPress={()=>router.push("/legal/terms")}>Terms of Service</Text> and acknowledge the <Text style={styles.policyText} onPress={()=>router.push("/legal/privacy")}>Privacy Policy</Text>.
             </Text>
           </Pressable>
 
