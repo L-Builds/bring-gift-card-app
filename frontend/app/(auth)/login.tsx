@@ -84,7 +84,7 @@ export default function Login() {
             <Text style={styles.brandTitle}>Bring Gift Card</Text>
           </View>
 
-          <Image source={require("../../assets/auth/login-hero-art.jpg")} style={styles.heroArt} contentFit="cover" />
+          <Image source={require("../../assets/auth/login-hero-art-blend.png")} style={styles.heroArt} contentFit="cover" />
           <View style={styles.heroCopy}>
             <Text style={styles.hello}>Hello Again,</Text>
             <Text style={styles.welcome}>Welcome Back 👋</Text>
