@@ -12,7 +12,7 @@ import { useToast } from "@/src/components/toast";
 import { useAuth } from "@/src/context/auth";
 import { ApiError } from "@/src/api/client";
 import { startGoogleSignIn } from "@/src/lib/google-auth";
-import { afterAuthHref, tradeAuthHref, type TradeIntent } from "@/src/lib/trade-intent";
+import { afterAuthHref, normalizeTradeIntent, tradeAuthHref, type TradeIntent } from "@/src/lib/trade-intent";
 
 export default function Login() {
   const styles = useStyles();
@@ -29,6 +29,7 @@ export default function Login() {
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [gLoading, setGLoading] = useState(false);
+  const [focusedInput, setFocusedInput] = useState<"identifier" | "password" | null>(null);
   const webInputReset = Platform.OS === "web" ? ({ outlineStyle: "none", outlineWidth: 0, boxShadow: "none" } as any) : undefined;
 
   useEffect(() => {
@@ -104,7 +105,7 @@ export default function Login() {
             </Pressable>
           </View>
 
-          <View style={styles.input}>
+          <View style={[styles.input, focusedInput === "identifier" && styles.inputFocused]}>
             <Ionicons name={tab === "email" ? "mail-outline" : "call-outline"} size={20} color={colors.muted} />
             <TextInput
               style={[styles.inputText, webInputReset]}
@@ -115,11 +116,13 @@ export default function Login() {
               autoCorrect={false}
               value={identifier}
               onChangeText={setIdentifier}
+              onFocus={() => setFocusedInput("identifier")}
+              onBlur={() => setFocusedInput(null)}
               testID={tab === "email" ? "login-email" : "login-phone"}
             />
           </View>
 
-          <View style={styles.input}>
+          <View style={[styles.input, focusedInput === "password" && styles.inputFocused]}>
             <Ionicons name="lock-closed-outline" size={20} color={colors.muted} />
             <TextInput
               style={[styles.inputText, webInputReset]}
@@ -128,6 +131,8 @@ export default function Login() {
               secureTextEntry={!show}
               value={password}
               onChangeText={setPassword}
+              onFocus={() => setFocusedInput("password")}
+              onBlur={() => setFocusedInput(null)}
               testID="login-password"
             />
             <Pressable onPress={() => setShow((s) => !s)} hitSlop={10} accessibilityLabel={show ? "Hide password" : "Show password"}>
@@ -135,7 +140,7 @@ export default function Login() {
             </Pressable>
           </View>
 
-          <Pressable style={styles.forgot} onPress={() => router.push("/(auth)/forgot-password")} testID="login-forgot">
+          <Pressable style={styles.forgot} onPress={() => router.push({ pathname: "/(auth)/forgot-password", params: normalizeTradeIntent(tradeIntent) ?? {} })} testID="login-forgot">
             <Text style={styles.forgotText}>Forgot Password?</Text>
           </Pressable>
 
@@ -192,6 +197,7 @@ const useStyles = makeStyles((colors) => ({
   tabTextActive: { color: colors.brandPrimary, fontWeight: "800" },
   tabUnderline: { height: 4, width: 44, borderRadius: 2, backgroundColor: colors.brandPrimary, marginTop: 8 },
   input: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderWidth: 1.4, borderColor: colors.borderStrong, borderRadius: radius.xl, paddingHorizontal: spacing.lg, height: 60, marginBottom: spacing.md, backgroundColor: colors.surface },
+  inputFocused: { borderColor: colors.brandPrimary, shadowColor: colors.brandPrimary, shadowOpacity: 0.22, shadowRadius: 6 },
   inputText: { flex: 1, fontSize: 16, color: colors.onSurface },
   forgot: { alignSelf: "flex-end", marginTop: -2 },
   forgotText: { color: colors.brandLink, fontWeight: "700", fontSize: 15, textDecorationLine: "underline" },

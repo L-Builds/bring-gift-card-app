@@ -43,3 +43,6 @@ app-example
 
 # Vercel local project linkage
 .vercel/
+.vercel
+.env*
+!.env.example

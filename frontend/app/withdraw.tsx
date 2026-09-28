@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, PrimaryButton, BrandMonogram, EmptyState } from "@/src/components/ui";
+import { ScreenBackground, PrimaryButton, BrandMonogram, EmptyState, LoadingView, QueryErrorView } from "@/src/components/ui";
 import { PinPad } from "@/src/components/pin-pad";
 import { useToast } from "@/src/components/toast";
 import { useAuth } from "@/src/context/auth";
@@ -34,8 +34,10 @@ export default function Withdraw() {
   const [pinAttempt, setPinAttempt] = useState(0);
   const [pinError, setPinError] = useState(false);
 
-  const { data: wallet } = useQuery({ queryKey: ["wallet"], queryFn: () => api.get<{ available_balance_kobo: number }>("/wallet") });
-  const { data: accData } = useQuery({ queryKey: ["payout-accounts"], queryFn: () => api.get<{ accounts: Account[] }>("/payout-accounts") });
+  const walletQuery = useQuery({ queryKey: ["wallet"], queryFn: () => api.get<{ available_balance_kobo: number }>("/wallet") });
+  const accountsQuery = useQuery({ queryKey: ["payout-accounts"], queryFn: () => api.get<{ accounts: Account[] }>("/payout-accounts") });
+  const wallet = walletQuery.data;
+  const accData = accountsQuery.data;
 
   useEffect(()=>{requestKey.current=`wd_${Date.now()}_${Math.random().toString(36).slice(2)}`;},[amount,selected]);
   const balance = wallet?.available_balance_kobo ?? 0;
@@ -100,6 +102,13 @@ export default function Withdraw() {
       setLoading(false);
     }
   };
+
+  if (walletQuery.isLoading || accountsQuery.isLoading) {
+    return <ScreenBackground><StackHeader title="Withdraw" /><LoadingView label="Checking your balance and payout accounts…" /></ScreenBackground>;
+  }
+  if (walletQuery.isError || accountsQuery.isError || !wallet || !accData) {
+    return <ScreenBackground><StackHeader title="Withdraw" /><QueryErrorView title="Withdrawal details unavailable" subtitle="We could not verify your balance or payout accounts. Please try again." onRetry={() => { void walletQuery.refetch(); void accountsQuery.refetch(); }} retrying={walletQuery.isRefetching || accountsQuery.isRefetching} /></ScreenBackground>;
+  }
 
   return (
     <ScreenBackground>

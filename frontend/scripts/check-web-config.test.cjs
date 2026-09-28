@@ -29,13 +29,16 @@ test("production web uses same-origin API without a build-time backend URL", () 
   assert.throws(() => apiBaseUrl(undefined, {web:false, dev:false}), /required/);
 });
 
-test("only the canonical production host proxies API calls to the production backend", () => {
+test("production and staging hosts proxy only to their matching backends", () => {
   const config = JSON.parse(fs.readFileSync(path.join(__dirname, "../vercel.json"), "utf8"));
   const apiRoutes = config.rewrites.filter((route) => route.source.startsWith("/api"));
-  assert.equal(apiRoutes.length, 1);
-  assert.equal(apiRoutes[0].source, "/api/:path*");
-  assert.equal(apiRoutes[0].destination, "https://bring-gift-card-api.vercel.app/api/:path*");
-  assert.deepEqual(apiRoutes[0].has, [{ type: "host", value: "bring-gift-card-app.vercel.app" }]);
+  assert.equal(apiRoutes.length, 2);
+  assert.deepEqual(apiRoutes.map(({ source, has, destination }) => ({ source, has, destination })), [
+    { source: "/api/:path*", has: [{ type: "host", value: "bring-gift-card-app.vercel.app" }],
+      destination: "https://bring-gift-card-api.vercel.app/api/:path*" },
+    { source: "/api/:path*", has: [{ type: "host", value: "bring-gift-card-app-stage.vercel.app" }],
+      destination: "https://bring-gift-card-api-stage.vercel.app/api/:path*" },
+  ]);
 
   const spaFallback = config.rewrites.at(-1);
   const fallbackPattern = new RegExp(`^${spaFallback.source}$`);

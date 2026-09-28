@@ -79,6 +79,38 @@ async def test_rate_changes_propagate_and_stale_quote_fails(http,actors):
     assert original["expected_payout_kobo"]==850000
 
 
+async def test_rate_publication_waits_for_trade_submission(http,actors,monkeypatch):
+    t,body=await trade(http,actors)
+    inserting=asyncio.Event();release=asyncio.Event();updating=asyncio.Event()
+    original_insert=s.db.trades.insert_one
+    original_update=s.db.card_rates.find_one_and_update
+    async def pause_insert(doc,session=None):
+        inserting.set()
+        await release.wait()
+        return await original_insert(doc,session=session)
+    async def mark_update(*args,**kwargs):
+        updating.set()
+        return await original_update(*args,**kwargs)
+    monkeypatch.setattr(s.db.trades,"insert_one",pause_insert)
+    monkeypatch.setattr(s.db.card_rates,"find_one_and_update",mark_update)
+    pending=asyncio.create_task(http.post('/api/trades',headers=actors[2],json=body))
+    try:
+        await asyncio.wait_for(inserting.wait(),90)
+        publication=asyncio.create_task(http.post('/api/admin/card-rates',headers=actors[3],json={
+            'brand_id':t['brand_id'],'market_code':'NG','face_value':100,'payout_minor':900000}))
+        await asyncio.wait_for(updating.wait(),90)
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(asyncio.shield(publication),.1)
+    finally:
+        release.set()
+    submitted,changed=await asyncio.gather(pending,publication)
+    assert submitted.status_code==200,submitted.text
+    assert changed.status_code==200,changed.text
+    assert submitted.json()['expected_payout_kobo']==850000
+    assert changed.json()['version']==body['rate_version']+1
+    assert (await http.post('/api/trades',headers=actors[2],json=body)).status_code==409
+
+
 async def test_ecode_encrypted_and_not_exposed(http,actors):
     t,_=await trade(http,actors)
     row=await s.db.trades.find_one({"id":t["id"]})
@@ -234,6 +266,29 @@ async def test_zero_decimal_withdrawal_receipt(http,actors):
     receipt=(await http.get(f'/api/receipts/withdrawal/{w["id"]}',headers=actors[2])).json()
     assert receipt["total_kobo"]==1234 and receipt["minor_digits"]==0
     assert any(line["value"]=="BANK-TEST-123" for line in receipt["lines"])
+    rejected=await withdrawal(http,actors,1000)
+    assert rejected.status_code==200,rejected.text
+    assert (await http.post(f'/api/admin/withdrawals/{rejected.json()["id"]}/reject',headers=actors[3],json={"reason":"invalid account"})).status_code==200
+    refunds=[item for item in (await http.get('/api/transactions',headers=actors[2])).json()['transactions'] if item['kind']=='refund']
+    assert len(refunds)==1 and refunds[0]['currency']=='XAF' and refunds[0]['minor_digits']==0
+
+
+async def test_zero_decimal_trade_receipt_uses_wallet_precision(http,actors):
+    await s.db.users.update_one({'id':actors[0]['id']},{'$set':{'currency':'XAF','minor_digits':0,'market_code':'CM'}})
+    brand=await http.post('/api/admin/brands',headers=actors[3],json={'name':'XAF Receipt Card'})
+    assert brand.status_code==200,brand.text
+    rate=await http.post('/api/admin/card-rates',headers=actors[3],json={
+        'brand_id':brand.json()['id'],'market_code':'CM','face_value':100,'payout_minor':1234})
+    assert rate.status_code==200,rate.text
+    submitted=await http.post('/api/trades',headers=actors[2],json={
+        'brand_id':brand.json()['id'],'submission_type':'ecode','card_value_usd':100,
+        'rate_version':rate.json()['version'],'ecode':'TEST-XAF-CODE'})
+    assert submitted.status_code==200,submitted.text
+    approved=await http.post(f'/api/admin/trades/{submitted.json()["id"]}/approve',headers=actors[3],json={})
+    assert approved.status_code==200,approved.text
+    receipt=(await http.get(f'/api/receipts/trade/{submitted.json()["id"]}',headers=actors[2])).json()
+    assert receipt['minor_digits']==0 and receipt['currency']=='XAF'
+    assert {'label':'Payout per card','value':'XAF 1,234 per card'} in receipt['lines']
 
 
 async def test_disabling_rate_and_card_blocks_quotes(http,actors):

@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, BrandMonogram, LoadingView, EmptyState, PrimaryButton } from "@/src/components/ui";
+import { ScreenBackground, BrandMonogram, LoadingView, EmptyState, PrimaryButton, QueryErrorView } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { api } from "@/src/api/client";
 
@@ -20,7 +20,7 @@ export default function PayoutAccounts() {
   const toast = useToast();
   const qc = useQueryClient();
 
-  const { data, isLoading } = useQuery({ queryKey: ["payout-accounts"], queryFn: () => api.get<{ accounts: Account[] }>("/payout-accounts") });
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({ queryKey: ["payout-accounts"], queryFn: () => api.get<{ accounts: Account[] }>("/payout-accounts") });
   const accounts = data?.accounts ?? [];
 
   const remove = async (id: string) => {
@@ -39,6 +39,8 @@ export default function PayoutAccounts() {
       <StackHeader title="Manage Accounts" />
       {isLoading ? (
         <LoadingView />
+      ) : isError || !data ? (
+        <QueryErrorView title="Payout accounts unavailable" onRetry={() => { void refetch(); }} retrying={isRefetching} />
       ) : (
         <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: insets.bottom + 112, gap: spacing.md }}>
           <View style={styles.headRow}>

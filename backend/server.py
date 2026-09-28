@@ -11,6 +11,7 @@ import hmac
 import json
 from decimal import Decimal
 import uuid
+import secrets
 import hashlib
 import logging
 from pathlib import Path
@@ -99,7 +100,8 @@ api = APIRouter(prefix="/api")
 
 @app.get("/", include_in_schema=False)
 async def open_app():
-    return RedirectResponse("https://bring-gift-card-app.vercel.app/", status_code=307)
+    app_url = os.environ.get("PUBLIC_APP_URL", "").strip().rstrip("/")
+    return RedirectResponse((app_url or "https://bring-gift-card-app.vercel.app") + "/", status_code=307)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("bgc")
@@ -137,6 +139,10 @@ def make_token(user: dict) -> str:
 
 def order_ref(prefix: str) -> str:
     return prefix + uuid.uuid4().hex[:8].upper()
+
+
+def new_referral_code() -> str:
+    return "BGC" + secrets.token_hex(6).upper()
 
 
 # ---------------------------------------------------------------------------
@@ -227,11 +233,11 @@ async def balance_kobo(user_id: str) -> int:
     return int(docs[0]["total"]) if docs else 0
 
 
-async def notify(user_id: str, title: str, body: str, ntype: str, ref_id: str = "") -> None:
+async def notify(user_id: str, title: str, body: str, ntype: str, ref_id: str = "", session=None) -> None:
     await db.notifications.insert_one({
         "id": new_id(), "user_id": user_id, "title": title, "body": body,
         "type": ntype, "ref_id": ref_id, "read": False, "created_at": now(),
-    })
+    }, session=session)
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +487,9 @@ async def signup(x: SignupIn):
         raise HTTPException(409, "Phone number already registered")
     referrer = None
     if x.referral_code.strip():
-        referrer = await db.users.find_one({"referral_code": x.referral_code.strip().upper(), "disabled": {"$ne": True}}, {"_id": 0, "id": 1})
+        code = x.referral_code.strip().upper()
+        referrer = await db.users.find_one({"referral_code": {"$regex": "^" + re.escape(code) + "$", "$options": "i"},
+                                           "disabled": {"$ne": True}}, {"_id": 0, "id": 1})
         if not referrer:
             raise HTTPException(400, "Referral code not found")
     user = {
@@ -490,13 +498,24 @@ async def signup(x: SignupIn):
         "role": "customer", "country": market["name"], "market_code": market["code"], "currency": market["currency"], "minor_digits": market["minor_digits"],
         "terms_accepted_at": now(), "terms_version": int(terms_doc.get("version", 1)), "privacy_version": int(privacy_doc.get("version", 1)), "kyc_status": "unverified",
         "notifications_enabled": True, "disabled": False,
-        "referral_code": "BGC" + uuid.uuid4().hex[:6].upper(), "created_at": now(),
+        "referral_code": new_referral_code(), "created_at": now(),
         "referred_by": referrer["id"] if referrer else None,
     }
-    try:
-        await db.users.insert_one(user)
-    except DuplicateKeyError:
-        raise HTTPException(409, "Account already registered")
+    for _ in range(5):
+        try:
+            await db.users.insert_one(user)
+            break
+        except DuplicateKeyError:
+            if await db.users.find_one({"email": email}) or await db.users.find_one({"phone": phone}):
+                raise HTTPException(409, "Account already registered")
+            collision = await db.users.find_one({"referral_code": {
+                "$regex": "^" + re.escape(user["referral_code"]) + "$", "$options": "i"}})
+            if collision:
+                user["referral_code"] = new_referral_code()
+                continue
+            raise HTTPException(409, "Account already registered")
+    else:
+        raise HTTPException(503, "Could not allocate a referral code; please retry")
     return {"access_token": make_token(user), "user": public_user(user)}
 
 
@@ -714,30 +733,35 @@ async def create_trade(x: TradeIn, user: dict = Depends(current_user)):
     if x.submission_type == "ecode" and not x.ecode.strip():
         raise HTTPException(400, "Please enter the e-code / card details")
     await validate_uploads(x.image_paths, user)
-    quote = await production.quote(x.brand_id, x.card_value_usd, x.quantity, user)
-    if quote["rate_version"] != x.rate_version:
-        raise HTTPException(409, "Rate changed. Refresh the quote and review before submitting.")
-    payout = quote["payout_minor"]
-    rate = quote["unit_payout_minor"] // x.card_value_usd
-    ts = now()
-    trade = {
-        "id": new_id(), "order_id": order_ref("BGC"), "user_id": user["id"],
-        "brand_id": brand["id"], "brand_name": brand["name"], "brand_color": brand.get("color", "#1F5AF6"),
-        "category": brand.get("category", ""), "submission_type": x.submission_type,
-        "subcategory": x.subcategory, "country": x.country,
-        "card_value_usd": x.card_value_usd, "quantity": x.quantity,
-        "rate_kobo_per_usd": rate, "expected_payout_kobo": payout,
-        "approved_payout_kobo": None, "status": "PENDING_REVIEW",
-        "image_paths": x.image_paths, "ecode_encrypted": encrypt(x.ecode.strip()), "notes": x.notes,
-        **quote,
-        "reason": "", "credited": False,
-        "status_history": [{"status": "PENDING_REVIEW", "at": ts, "by": "customer", "note": "Submitted for review"}],
-        "created_at": ts, "updated_at": ts,
-    }
-    await db.trades.insert_one(trade)
-    await notify(user["id"], "Trade submitted",
-                 f"Your {brand['name']} trade {trade['order_id']} is pending review.", "trade", trade["id"])
-    return public_trade(trade)
+    async def submit(session):
+        # Hold the rate row until the trade is recorded. A concurrent admin rate
+        # publication must either precede this version check or follow the trade.
+        quote = await production.quote(x.brand_id, x.card_value_usd, x.quantity, user,
+                                       session=session, lock_rows=True)
+        if quote["rate_version"] != x.rate_version:
+            raise HTTPException(409, "Rate changed. Refresh the quote and review before submitting.")
+        payout = quote["payout_minor"]
+        rate = quote["unit_payout_minor"] // x.card_value_usd
+        ts = now()
+        trade = {
+            "id": new_id(), "order_id": order_ref("BGC"), "user_id": user["id"],
+            "brand_id": brand["id"], "brand_name": brand["name"], "brand_color": brand.get("color", "#1F5AF6"),
+            "category": brand.get("category", ""), "submission_type": x.submission_type,
+            "subcategory": x.subcategory, "country": x.country,
+            "card_value_usd": x.card_value_usd, "quantity": x.quantity,
+            "rate_kobo_per_usd": rate, "expected_payout_kobo": payout,
+            "approved_payout_kobo": None, "status": "PENDING_REVIEW",
+            "image_paths": x.image_paths, "ecode_encrypted": encrypt(x.ecode.strip()), "notes": x.notes,
+            **quote,
+            "reason": "", "credited": False,
+            "status_history": [{"status": "PENDING_REVIEW", "at": ts, "by": "customer", "note": "Submitted for review"}],
+            "created_at": ts, "updated_at": ts,
+        }
+        await db.trades.insert_one(trade, session=session)
+        await notify(user["id"], "Trade submitted",
+                     f"Your {brand['name']} trade {trade['order_id']} is pending review.", "trade", trade["id"], session=session)
+        return public_trade(trade)
+    return await money.transaction(submit)
 
 
 @api.get("/trades")
@@ -870,7 +894,8 @@ async def transactions(type: str = "all", status: str = "", user: dict = Depends
         for t in await db.trades.find({"user_id": user["id"]}, {"_id": 0}).to_list(300):
             amt = t.get("approved_payout_kobo") or t.get("expected_payout_kobo") or 0
             items.append({
-                "currency": t.get("currency", "NGN"), "id": t["id"], "kind": "sale", "title": t["brand_name"],
+                "currency": t.get("currency", "NGN"), "minor_digits": t.get("minor_digits", 2),
+                "id": t["id"], "kind": "sale", "title": t["brand_name"],
                 "subtitle": f"${t['card_value_usd']} {'E-code' if t['submission_type']=='ecode' else 'Gift Card'}",
                 "amount_kobo": amt, "signed": 1, "status": _trade_status_label(t["status"]),
                 "ref": t["order_id"], "color": t.get("brand_color", "#1F5AF6"),
@@ -879,14 +904,16 @@ async def transactions(type: str = "all", status: str = "", user: dict = Depends
     if type in ("all", "withdrawals"):
         for w in await db.withdrawals.find({"user_id": user["id"]}, {"_id": 0}).to_list(300):
             items.append({
-                "currency": w.get("currency", "NGN"), "id": w["id"], "kind": "withdrawal", "title": "Withdrawal",
+                "currency": w.get("currency", "NGN"), "minor_digits": w.get("minor_digits", 2),
+                "id": w["id"], "kind": "withdrawal", "title": "Withdrawal",
                 "subtitle": f"To {w['destination']['provider_name']} ({w['destination']['account_number']})",
                 "amount_kobo": w["amount_kobo"], "signed": -1, "status": _wd_status_label(w["status"]),
                 "ref": w["ref"], "color": "#1F5AF6", "date": w["created_at"], "icon": "bank",
             })
-    for l in await db.ledger.find({"user_id": user["id"], "type": "REFUND"}, {"_id": 0}).to_list(300):
+    for l in await db.ledger.find({"user_id": user["id"], "type": {"$in": ["REFUND", "WITHDRAWAL_REVERSAL"]}}, {"_id": 0}).to_list(300):
         if type in ("all",):
             items.append({
+                "currency": l.get("currency", user.get("currency", "NGN")), "minor_digits": user.get("minor_digits", 2),
                 "id": l["id"], "kind": "refund", "title": "Refund", "subtitle": l["description"],
                 "amount_kobo": abs(l["amount_kobo"]), "signed": 1 if l["amount_kobo"] > 0 else -1,
                 "status": "Completed", "ref": l.get("ref_id", "")[:10].upper(),
@@ -1020,17 +1047,21 @@ async def referral(user: dict = Depends(current_user)):
 @api.post("/referral/apply")
 async def referral_apply(x: ReferralApplyIn, user: dict = Depends(current_user)):
     """Link one referral code to an account. Financial reward policy is intentionally not implemented."""
-    full = await db.users.find_one({"id": user["id"]}, {"_id": 0, "referred_by": 1, "referral_code": 1})
-    if full.get("referred_by"):
-        raise HTTPException(400, "A referral code is already linked to your account")
     code = x.code.strip().upper()
-    if code == full.get("referral_code"):
-        raise HTTPException(400, "You can't use your own referral code")
-    referrer = await db.users.find_one({"referral_code": code, "disabled": {"$ne": True}}, {"_id": 0, "id": 1, "full_name": 1})
-    if not referrer:
-        raise HTTPException(400, "Referral code not found")
-    await db.users.update_one({"id": user["id"]}, {"$set": {"referred_by": referrer["id"]}})
-    return {"ok": True, "referred_by_name": referrer["full_name"]}
+    async def link(session):
+        await money.lock_user(user["id"], session)
+        full = await db.users.find_one({"id": user["id"]}, {"_id": 0, "referred_by": 1, "referral_code": 1}, session=session)
+        if full.get("referred_by"):
+            raise HTTPException(400, "A referral code is already linked to your account")
+        if code == (full.get("referral_code") or "").upper():
+            raise HTTPException(400, "You can't use your own referral code")
+        referrer = await db.users.find_one({"referral_code": {"$regex": "^" + re.escape(code) + "$", "$options": "i"},
+                                           "disabled": {"$ne": True}}, {"_id": 0, "id": 1, "full_name": 1}, session=session)
+        if not referrer:
+            raise HTTPException(400, "Referral code not found")
+        await db.users.update_one({"id": user["id"]}, {"$set": {"referred_by": referrer["id"]}}, session=session)
+        return {"ok": True, "referred_by_name": referrer["full_name"]}
+    return await money.transaction(link)
 
 
 # ===========================================================================
@@ -1048,6 +1079,9 @@ async def trade_receipt(trade_id: str, user: dict = Depends(current_user)):
     if t["status"] != "APPROVED":
         raise HTTPException(400, "Receipts are available once a trade is approved")
     payout = int(t.get("approved_payout_kobo") or t["expected_payout_kobo"])
+    minor_digits = int(t.get("minor_digits", 2))
+    unit_minor = int(t.get("unit_payout_minor") or t["rate_kobo_per_usd"] * t["card_value_usd"])
+    unit_amount = Decimal(unit_minor) / (Decimal(10) ** minor_digits)
     return {
         "kind": "trade", "title": "Trade Receipt", "receipt_no": f"RCT-{t['order_id']}", "ref": t["order_id"],
         "status": "APPROVED", "verification_code": _receipt_code("trade", t["order_id"]),
@@ -1057,9 +1091,9 @@ async def trade_receipt(trade_id: str, user: dict = Depends(current_user)):
             {"label": "Gift card", "value": t["brand_name"]},
             {"label": "Card value", "value": f"${t['card_value_usd']:,} × {t['quantity']}"},
             {"label": "Type", "value": "E-code" if t["submission_type"] == "ecode" else "Physical card"},
-            {"label": "Payout per card", "value": f"{t.get('currency', 'NGN')} {t.get('unit_payout_minor', t['rate_kobo_per_usd'] * t['card_value_usd']) / 10 ** t.get('minor_digits', 2):,.2f} per card"},
+            {"label": "Payout per card", "value": f"{t.get('currency', 'NGN')} {unit_amount:,.{minor_digits}f} per card"},
         ] + ([{"label": "Reviewer note", "value": t["admin_note"]}] if t.get("admin_note") else []),
-        "currency": t.get("currency", "NGN"), "minor_digits": t.get("minor_digits", 2),
+        "currency": t.get("currency", "NGN"), "minor_digits": minor_digits,
         "total_kobo": payout, "total_label": "Credited to wallet",
         "company": {"name": "Bring Gift Card", "support": "hello@bringgiftcard.com"},
     }

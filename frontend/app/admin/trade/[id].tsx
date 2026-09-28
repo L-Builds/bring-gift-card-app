@@ -7,7 +7,7 @@ import { Image } from "@/src/components/private-image";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, StatusBadge, BrandMonogram, PrimaryButton, LoadingView } from "@/src/components/ui";
+import { ScreenBackground, StatusBadge, BrandMonogram, PrimaryButton, LoadingView, QueryErrorView } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { useAuth } from "@/src/context/auth";
 import { api, fileUrl, ApiError } from "@/src/api/client";
@@ -37,11 +37,12 @@ export default function AdminTradeDetail() {
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const { data, isLoading, refetch } = useQuery({ queryKey: ["admin-trade", id], queryFn: () => api.get<Trade>(`/admin/trades/${id}`) });
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({ queryKey: ["admin-trade", id], queryFn: () => api.get<Trade>(`/admin/trades/${id}`) });
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return <ScreenBackground><StackHeader title="Review Trade" /><LoadingView /></ScreenBackground>;
   }
+  if (isError || !data) return <ScreenBackground><StackHeader title="Review Trade" /><QueryErrorView title="Trade review unavailable" onRetry={() => { void refetch(); }} retrying={isRefetching} /></ScreenBackground>;
 
   const openAction = (a: "approve" | "reject" | "need-info") => {
     setText("");

@@ -8,3 +8,6 @@ __pycache__/
 .venv/
 venv/
 .vercel/
+.vercel
+.env*
+!.env.example

@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { AppHeader } from "@/src/components/app-header";
-import { ScreenBackground, StatusBadge, LoadingView, EmptyState, PrimaryButton } from "@/src/components/ui";
+import { ScreenBackground, StatusBadge, LoadingView, EmptyState, PrimaryButton, QueryErrorView } from "@/src/components/ui";
 import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
 import { formatNaira, formatDate, toMinor } from "@/src/lib/format";
@@ -77,7 +77,7 @@ export default function Transactions() {
   const params = new URLSearchParams({ type });
   if (status) params.set("status", status);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({
     queryKey: ["transactions", type, status],
     queryFn: () => api.get<{ transactions: Txn[] }>(`/transactions?${params.toString()}`),
     enabled: !isGuest,
@@ -164,6 +164,8 @@ export default function Transactions() {
 
       {isLoading ? (
         <LoadingView />
+      ) : isError || !data ? (
+        <QueryErrorView title="Transactions unavailable" onRetry={() => { void refetch(); }} retrying={isRefetching} />
       ) : (
         <FlatList
           data={filteredTransactions}

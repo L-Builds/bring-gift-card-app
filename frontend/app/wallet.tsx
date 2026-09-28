@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, Pressable, ScrollView, RefreshControl } from "react-native";
+import { View, Text, Pressable, ScrollView, RefreshControl, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, PrimaryButton } from "@/src/components/ui";
+import { ScreenBackground, PrimaryButton, LoadingView, QueryErrorView } from "@/src/components/ui";
 import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
 import { formatNaira } from "@/src/lib/format";
@@ -17,9 +17,10 @@ export default function Wallet() {
   const { colors } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { refresh, user } = useAuth();
+  const { width } = useWindowDimensions();
+  const { refresh } = useAuth();
 
-  const { data, refetch, isRefetching } = useQuery({
+  const { data, refetch, isLoading, isError, isRefetching } = useQuery({
     queryKey: ["wallet"],
     queryFn: () => api.get<{ available_balance_kobo: number; payout_accounts_count: number; currency: string }>("/wallet"),
   });
@@ -27,18 +28,23 @@ export default function Wallet() {
   const onRefresh = async () => {
     await Promise.all([refetch(), refresh()]);
   };
+  const balanceLabel = formatNaira(data?.available_balance_kobo ?? 0);
+  const balanceFontSize = Math.max(18, Math.min(38, Math.floor((Math.min(width, 480) - 80) / (balanceLabel.length * 0.62))));
 
   return (
     <ScreenBackground>
       <StackHeader title="Wallet" />
+      {isLoading ? <LoadingView label="Loading your wallet…" /> : isError || !data ? (
+        <QueryErrorView title="Wallet unavailable" subtitle="We could not verify your balance. Please try again before withdrawing." onRetry={() => { void refetch(); }} retrying={isRefetching} />
+      ) : (
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: insets.bottom + spacing.xxxl, gap: spacing.lg }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
       >
         <LinearGradient colors={[colors.brandDeep, colors.brandPrimary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.card}>
           <Text style={styles.label}>Available Balance</Text>
-          <Text style={styles.value} testID="wallet-balance">{formatNaira(data?.available_balance_kobo ?? 0)}</Text>
-          <Text style={styles.currency}>Wallet • {data?.currency || user?.currency || "NGN"}</Text>
+          <Text style={[styles.value, { fontSize: balanceFontSize }]} numberOfLines={1} testID="wallet-balance">{balanceLabel}</Text>
+          <Text style={styles.currency}>Wallet • {data.currency}</Text>
           <Ionicons name="wallet" size={96} color="rgba(255,255,255,0.12)" style={styles.bgIcon} />
         </LinearGradient>
 
@@ -48,7 +54,7 @@ export default function Wallet() {
           <View style={styles.quickIcon}><Ionicons name="card" size={22} color={colors.brandPrimary} /></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.quickText}>Payout Accounts</Text>
-            <Text style={styles.quickSub}>{data?.payout_accounts_count ?? 0} saved</Text>
+            <Text style={styles.quickSub}>{data.payout_accounts_count} saved</Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color={colors.muted} />
         </Pressable>
@@ -58,6 +64,7 @@ export default function Wallet() {
           <Text style={styles.infoText}>Only approved trade value is added to your Available Balance. Full activity stays in Transactions.</Text>
         </View>
       </ScrollView>
+      )}
     </ScreenBackground>
   );
 }

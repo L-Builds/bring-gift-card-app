@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, LoadingView, EmptyState } from "@/src/components/ui";
+import { ScreenBackground, LoadingView, EmptyState, QueryErrorView } from "@/src/components/ui";
 import { api } from "@/src/api/client";
 import { formatDateTime } from "@/src/lib/format";
 
@@ -20,7 +20,7 @@ export default function Notifications() {
   const qc = useQueryClient();
   const router = useRouter();
 
-  const { data, isLoading } = useQuery({ queryKey: ["notifications"], queryFn: () => api.get<{ notifications: Notif[] }>("/notifications") });
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({ queryKey: ["notifications"], queryFn: () => api.get<{ notifications: Notif[] }>("/notifications") });
 
   useEffect(() => {
     (async () => {
@@ -34,6 +34,8 @@ export default function Notifications() {
       <StackHeader title="Notifications" />
       {isLoading ? (
         <LoadingView />
+      ) : isError || !data ? (
+        <QueryErrorView title="Notifications unavailable" onRetry={() => { void refetch(); }} retrying={isRefetching} />
       ) : (
         <FlatList
           data={(data?.notifications ?? []).filter((n) => n.type !== "kyc")}

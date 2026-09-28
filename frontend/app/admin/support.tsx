@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, StatusBadge, LoadingView, EmptyState } from "@/src/components/ui";
+import { ScreenBackground, StatusBadge, LoadingView, EmptyState, QueryErrorView } from "@/src/components/ui";
 import { api } from "@/src/api/client";
 import { formatDateTime } from "@/src/lib/format";
 import { Ticket, ticketStatusLabel } from "@/src/lib/support";
@@ -25,7 +25,7 @@ export default function AdminSupport() {
   const [filter, setFilter] = useState("OPEN");
   const [q, setQ] = useState("");
 
-  const { data, isLoading, refetch, isRefetching } = useQuery({
+  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ["admin-support", filter, q],
     queryFn: () => api.get<{ tickets: Ticket[] }>(`/admin/support?status=${filter}&q=${encodeURIComponent(q)}`),
     refetchInterval: 15000,
@@ -56,6 +56,8 @@ export default function AdminSupport() {
 
       {isLoading ? (
         <LoadingView />
+      ) : isError || !data ? (
+        <QueryErrorView title="Support inbox unavailable" onRetry={() => { void refetch(); }} retrying={isRefetching} />
       ) : (
         <FlatList
           data={data?.tickets ?? []}

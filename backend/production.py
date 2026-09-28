@@ -76,15 +76,17 @@ class Production:
     async def audit(self, actor, action, target):
         await self.db.audit.insert_one({"actor": actor, "action": action, "target": target, "at": self.s.now()})
 
-    async def quote(self, brand_id, face_value, quantity, user):
-        market = await self.db.markets.find_one({"code": user.get("market_code", "NG"), "is_active": True})
-        brand = await self.db.brands.find_one({"id": brand_id, "is_active": True})
+    async def quote(self, brand_id, face_value, quantity, user, session=None, lock_rows=False):
+        market = await self.db.markets.find_one({"code": user.get("market_code", "NG"), "is_active": True},
+                                                 session=session, for_update=lock_rows)
+        brand = await self.db.brands.find_one({"id": brand_id, "is_active": True},
+                                               session=session, for_update=lock_rows)
         if not market or not brand:
             raise HTTPException(400, "Card or market is not available")
         if market["currency"] != user.get("currency", "NGN"):
             raise HTTPException(409, "Market currency does not match this wallet")
         rate = await self.db.card_rates.find_one({"brand_id": brand_id, "market_code": market["code"],
-            "face_value": face_value, "is_active": True}, {"_id": 0})
+            "face_value": face_value, "is_active": True}, {"_id": 0}, session=session, for_update=lock_rows)
         if not rate:
             raise HTTPException(409, "No active rate for this card value and payout market")
         return {"rate_id": rate["id"], "rate_version": rate["version"], "currency": market["currency"],

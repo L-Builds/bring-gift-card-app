@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, LoadingView, PrimaryButton } from "@/src/components/ui";
+import { ScreenBackground, LoadingView, PrimaryButton, QueryErrorView } from "@/src/components/ui";
 import { PinPad } from "@/src/components/pin-pad";
 import { useToast } from "@/src/components/toast";
 import { useAuth } from "@/src/context/auth";
@@ -24,7 +24,7 @@ export default function TransactionPin() {
   const qc = useQueryClient();
   const { isGuest, loading: authLoading, refresh } = useAuth();
 
-  const { data, isLoading } = useQuery({ queryKey: ["pin-status"], queryFn: () => api.get<PinStatus>("/security/pin"), enabled: !isGuest });
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({ queryKey: ["pin-status"], queryFn: () => api.get<PinStatus>("/security/pin"), enabled: !isGuest });
 
   const [step, setStep] = useState<Step | null>(null);
   const [current, setCurrent] = useState("");
@@ -38,7 +38,8 @@ export default function TransactionPin() {
 
   if (authLoading) return <ScreenBackground><StackHeader title="Transaction PIN" /><LoadingView /></ScreenBackground>;
   if (isGuest) return <Redirect href="/(auth)/login" />;
-  if (isLoading || !data) return <ScreenBackground><StackHeader title="Transaction PIN" /><LoadingView /></ScreenBackground>;
+  if (isLoading) return <ScreenBackground><StackHeader title="Transaction PIN" /><LoadingView /></ScreenBackground>;
+  if (isError || !data) return <ScreenBackground><StackHeader title="Transaction PIN" /><QueryErrorView title="PIN settings unavailable" onRetry={() => { void refetch(); }} retrying={isRefetching} /></ScreenBackground>;
 
   const hasPin = data.has_pin;
   const activeStep: Step = step ?? (hasPin ? "current" : "new");

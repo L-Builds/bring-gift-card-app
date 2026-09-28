@@ -11,6 +11,11 @@
       "has": [{"type": "host", "value": "bring-gift-card-app.vercel.app"}],
       "destination": "https://bring-gift-card-api.vercel.app/api/:path*"
     },
+    {
+      "source": "/api/:path*",
+      "has": [{"type": "host", "value": "bring-gift-card-app-stage.vercel.app"}],
+      "destination": "https://bring-gift-card-api-stage.vercel.app/api/:path*"
+    },
     {"source": "/((?!_expo(?:/|$)|assets(?:/|$)|api(?:/|$)|favicon\\.ico$).*)", "destination": "/index.html"}
   ],
   "headers": [{"source": "/(.*)", "headers": [

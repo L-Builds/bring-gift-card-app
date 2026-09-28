@@ -9,7 +9,7 @@ import Ionicons from "@react-native-vector-icons/ionicons";
 import { Image } from "expo-image";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { AppHeader } from "@/src/components/app-header";
-import { ScreenBackground, PrimaryButton } from "@/src/components/ui";
+import { ScreenBackground, PrimaryButton, LoadingView, QueryErrorView } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { useAuth } from "@/src/context/auth";
 import { api, uploadImage, ApiError } from "@/src/api/client";
@@ -38,6 +38,7 @@ export default function Trade() {
   const cardRates = useCardRates();
   const { brand_id, card_value_usd, quantity } = useLocalSearchParams<{ brand_id?: string; card_value_usd?: string; quantity?: string }>();
   const lastAppliedBrandId = useRef<string | null>(null);
+  const lastAppliedIntent = useRef<string | null>(null);
 
   const [type, setType] = useState<SubmissionType>("physical");
   const [brand, setBrand] = useState<Brand | null>(null);
@@ -52,7 +53,7 @@ export default function Trade() {
   const [picker, setPicker] = useState<null | "brand" | "sub" | "country">(null);
   const [reviewOpen, setReviewOpen] = useState(false);
 
-  const { data } = useQuery({
+  const { data, isLoading: brandsLoading, isError: brandsError, isRefetching: brandsRefetching, refetch: refetchBrands } = useQuery({
     queryKey: ["brands", "all"],
     queryFn: () => api.get<{ brands: Brand[] }>("/brands"),
     enabled: !isGuest,
@@ -61,8 +62,15 @@ export default function Trade() {
   useEffect(() => {
     const intent = normalizeTradeIntent({ brand_id, card_value_usd, quantity });
     if (!intent) return;
+    const key = JSON.stringify(intent);
+    if (lastAppliedIntent.current === key) return;
+    if (lastAppliedIntent.current !== null) {
+      setNotes("");
+      setEcode("");
+      setImages([]);
+    }
+    lastAppliedIntent.current = key;
     // A new navigation link must replace the prefilled form values.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setValue(intent.card_value_usd ?? "");
     setQty(Number(intent.quantity ?? "1"));
   }, [brand_id, card_value_usd, quantity]);
@@ -71,6 +79,11 @@ export default function Trade() {
     if (!brand_id || !data?.brands.length || lastAppliedBrandId.current === brand_id) return;
     const selected = data.brands.find((b) => b.id === brand_id);
     if (!selected) return;
+    if (lastAppliedBrandId.current !== null) {
+      setNotes("");
+      setEcode("");
+      setImages([]);
+    }
     lastAppliedBrandId.current = brand_id;
     setBrand(selected);
     setSubcategory("");
@@ -85,6 +98,8 @@ export default function Trade() {
   useEffect(()=>{setReviewOpen(false);},[quote.data?.rate_version]);
 
   if (isGuest) return <Redirect href="/(auth)/login" />;
+  if (brandsLoading) return <ScreenBackground><AppHeader title="Trade" showBell /><LoadingView label="Loading gift cards…" /></ScreenBackground>;
+  if (brandsError || !data) return <ScreenBackground><AppHeader title="Trade" showBell /><QueryErrorView title="Gift cards unavailable" subtitle="We could not load the current card catalog. Please try again before trading." onRetry={() => { void refetchBrands(); }} retrying={brandsRefetching} /></ScreenBackground>;
 
   const supportedTypes = (b: Brand | null): SubmissionType[] => b?.submission_types?.length ? b.submission_types : ["physical", "ecode"];
   const typeAvailable = (t: SubmissionType) => !brand || supportedTypes(brand).includes(t);
@@ -199,6 +214,13 @@ export default function Trade() {
   const onSelect = (val: string) => {
     if (picker === "brand") {
       const b = data?.brands.find((x) => x.name === val) || null;
+      if (b?.id !== brand?.id) {
+        setValue("");
+        setQty(1);
+        setNotes("");
+        setEcode("");
+        setImages([]);
+      }
       setBrand(b);
       setSubcategory("");
       setCountry("");
@@ -313,13 +335,14 @@ export default function Trade() {
           <View style={styles.payoutIcon}><Ionicons name="wallet" size={24} color={colors.success} /></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.payoutLabel}>Estimated payout</Text>
-            <Text style={styles.payoutValue}>{formatNaira(payout)}</Text>
+            <Text style={styles.payoutValue}>{quote.isError ? "Quote unavailable" : quote.isFetching ? "Checking quote…" : quote.data ? formatNaira(payout) : "—"}</Text>
           </View>
           <View style={styles.rateBox}>
             <Text style={styles.rateLabel}>Rate</Text>
-            <Text style={styles.rateValue}>{quote.data ? `$${value} → ${formatNaira(quote.data.unit_payout_minor)} per card` : "Select a card value"}</Text>
+            <Text style={styles.rateValue}>{quote.isError ? "Could not load a quote" : quote.data ? `$${value} → ${formatNaira(quote.data.unit_payout_minor)} per card` : "Select a card value"}</Text>
           </View>
         </View>
+        {quote.isError && <PrimaryButton title="Retry quote" variant="secondary" onPress={() => { void quote.refetch(); }} loading={quote.isRefetching} testID="trade-quote-retry" />}
 
         {type === "ecode" && (
           <View style={styles.field}>

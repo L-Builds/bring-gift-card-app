@@ -1,6 +1,6 @@
 import { useCardRates, rateLabel } from "@/src/lib/market";
 import React, { useState } from "react";
-import { View, Text, ScrollView, Pressable, RefreshControl } from "react-native";
+import { View, Text, ScrollView, Pressable, RefreshControl, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
@@ -36,6 +36,8 @@ export default function Home() {
   const rates = useCardRates();
   const styles = useStyles();
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const compact = width < 400;
   const router = useRouter();
   const { user, isGuest, balanceKobo, refresh } = useAuth();
   const [hideBalance, setHideBalance] = useState(false);
@@ -68,6 +70,9 @@ export default function Home() {
   const currencyLabel = isGuest
     ? rates.isError && !rates.data ? "Market error" : rates.isLoading ? "Checking market" : rates.data?.market?.currency ?? "No market"
     : undefined;
+  const balanceLabel = formatNaira(balanceKobo);
+  const balanceWidth = (Math.min(width, 480) - 2 * spacing.lg) * (compact ? 0.76 : 0.62) - 2 * (compact ? spacing.md : spacing.xl);
+  const balanceFontSize = Math.max(15, Math.min(27, Math.floor(balanceWidth / (balanceLabel.length * 0.62))));
 
   return (
     <ScreenBackground>
@@ -80,12 +85,12 @@ export default function Home() {
         {isGuest ? (
           <View style={styles.hero}>
             <Image source={require("../../assets/home/hero-card-art-wide.png")} style={styles.heroArt} contentFit="cover" />
-            <View style={styles.heroCopy}>
+            <View style={[styles.heroCopy, compact && styles.heroCopyCompact]}>
               <Text style={styles.heroHello}>Hello,</Text>
               <Text style={styles.heroTitle}>Welcome to{"\n"}<Text style={styles.heroAccent}>Bring Gift Card</Text></Text>
-              <Text style={styles.heroSub}>Trade Gift Cards Instantly &{"\n"}Securely</Text>
-              <Pressable style={styles.heroBtn} onPress={() => router.push("/(tabs)/rates")} testID="home-check-rates">
-                <Text style={styles.heroBtnText}>Check Rates</Text>
+              <Text style={styles.heroSub}>Trade Gift Cards Instantly & Securely</Text>
+              <Pressable style={[styles.heroBtn, compact && styles.heroBtnCompact]} onPress={() => router.push("/(tabs)/rates")} testID="home-check-rates">
+                <Text style={styles.heroBtnText} numberOfLines={1}>Check Rates</Text>
                 <Ionicons name="arrow-forward" size={20} color={colors.onSurface} />
               </Pressable>
             </View>
@@ -94,14 +99,14 @@ export default function Home() {
           <View testID="home-balance-card">
             <LinearGradient colors={[colors.brandDeep, colors.brandPrimary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.balanceCard}>
               <Image source={require("../../assets/home/balance-wallet-art.png")} style={styles.balanceArt} contentFit="cover" />
-              <View style={styles.balanceCopy}>
+              <View style={[styles.balanceCopy, compact && styles.balanceCopyCompact]}>
                 <View style={styles.balanceTop}>
                   <Text style={styles.balanceLabel}>Available Balance</Text>
                   <Pressable onPress={() => setHideBalance((h) => !h)} hitSlop={10} testID="home-toggle-balance">
                     <Ionicons name={hideBalance ? "eye-off-outline" : "eye-outline"} size={20} color="rgba(255,255,255,0.9)" />
                   </Pressable>
                 </View>
-                <Text style={styles.balanceValue}>{hideBalance ? "• • • • • •" : formatNaira(balanceKobo)}</Text>
+                <Text style={[styles.balanceValue, { fontSize: balanceFontSize }]} numberOfLines={1}>{hideBalance ? "• • • • • •" : balanceLabel}</Text>
               </View>
               <Pressable
                 style={styles.balanceWalletHit}
@@ -154,11 +159,21 @@ export default function Home() {
                   testID={`home-brand-${b.id}`}
                 >
                   <BrandIcon brand={b} />
-                  <Text style={styles.brandName}>{b.name}</Text>
-                  <View style={styles.brandRight}>
-                    <Text style={styles.brandRate}>{rateText(b.id)}</Text>
-                    <Ionicons name="chevron-forward" size={17} color={colors.muted} />
-                  </View>
+                  {compact ? (
+                    <View style={styles.brandContent}>
+                      <Text style={styles.brandName} numberOfLines={2}>{b.name}</Text>
+                      <Text style={styles.brandRate} numberOfLines={1}>{rateText(b.id)}</Text>
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={[styles.brandName, styles.brandNameDesktop]}>{b.name}</Text>
+                      <View style={styles.brandRight}>
+                        <Text style={styles.brandRate}>{rateText(b.id)}</Text>
+                        <Ionicons name="chevron-forward" size={17} color={colors.muted} />
+                      </View>
+                    </>
+                  )}
+                  {compact && <Ionicons name="chevron-forward" size={17} color={colors.muted} />}
                 </Pressable>
               ))}
             </View>
@@ -196,6 +211,7 @@ const useStyles = makeStyles((colors) => ({
   },
   heroArt: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, width: "100%", height: "100%" },
   heroCopy: { paddingHorizontal: spacing.xl, paddingVertical: spacing.xl, width: "52%", zIndex: 2 },
+  heroCopyCompact: { paddingHorizontal: spacing.md, width: "67%" },
   heroHello: { color: "rgba(255,255,255,0.92)", fontSize: 15 },
   heroTitle: { color: colors.onBrandPrimary, fontSize: 20, fontWeight: "800", marginTop: 2, lineHeight: 24 },
   heroAccent: { color: "#22D3EE" },
@@ -211,6 +227,7 @@ const useStyles = makeStyles((colors) => ({
     borderRadius: radius.pill,
     marginTop: spacing.lg,
   },
+  heroBtnCompact: { paddingHorizontal: spacing.md, gap: spacing.xs },
   heroBtnText: { color: colors.onSurface, fontWeight: "800", fontSize: 14 },
   balanceCard: {
     minHeight: 155,
@@ -222,6 +239,7 @@ const useStyles = makeStyles((colors) => ({
   },
   balanceArt: { position: "absolute", right: 0, top: 0, width: "57%", height: "100%" },
   balanceCopy: { width: "62%", paddingHorizontal: spacing.xl, zIndex: 2 },
+  balanceCopyCompact: { width: "76%", paddingHorizontal: spacing.md },
   balanceTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   balanceLabel: { color: "rgba(255,255,255,0.93)", fontSize: 14, fontWeight: "500" },
   balanceValue: { color: colors.onBrandPrimary, fontSize: 27, fontWeight: "800", marginTop: spacing.md, letterSpacing: 0.5 },
@@ -258,7 +276,9 @@ const useStyles = makeStyles((colors) => ({
   staleNotice: { color: colors.muted, fontSize: 12, paddingVertical: spacing.sm },
   brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 57 },
   brandDivider: { borderBottomWidth: 1, borderBottomColor: colors.divider },
-  brandName: { flex: 1, fontSize: 14.5, fontWeight: "600", color: colors.onSurface },
+  brandContent: { flex: 1, minWidth: 0, gap: 3, paddingVertical: spacing.sm },
+  brandName: { fontSize: 14.5, fontWeight: "600", color: colors.onSurface },
+  brandNameDesktop: { flex: 1 },
   brandRight: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   brandRate: { fontSize: 13.5, fontWeight: "600", color: colors.onSurface },
   promo: {

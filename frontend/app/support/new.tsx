@@ -34,7 +34,8 @@ export default function NewTicket() {
   const [refId, setRefId] = useState(params.ref_id || "");
   const [busy, setBusy] = useState(false);
 
-  const { data: meta } = useQuery({ queryKey: ["support-tickets"], queryFn: () => api.get<{ categories: Cat[] }>("/support/tickets"), enabled: !isGuest });
+  const metaQuery = useQuery({ queryKey: ["support-tickets"], queryFn: () => api.get<{ categories: Cat[] }>("/support/tickets"), enabled: !isGuest });
+  const meta = metaQuery.data;
   const { data: trades } = useQuery({ queryKey: ["my-trades"], queryFn: () => api.get<{ trades: Trade[] }>("/trades"), enabled: !isGuest && category === "trade" });
   const { data: wds } = useQuery({ queryKey: ["my-withdrawals"], queryFn: () => api.get<{ withdrawals: Wd[] }>("/withdrawals"), enabled: !isGuest && category === "withdrawal" });
 
@@ -48,6 +49,7 @@ export default function NewTicket() {
   };
 
   const submit = async () => {
+    if (metaQuery.isError || !meta?.categories.length) return toast.show("Support topics are unavailable. Please try again.", "error");
     if (!category) return toast.show("Choose a topic", "error");
     if (subject.trim().length < 3) return toast.show("Enter a short subject", "error");
     if (message.trim().length < 3) return toast.show("Describe your issue", "error");
@@ -78,6 +80,13 @@ export default function NewTicket() {
       <KeyboardAwareScrollView bottomOffset={24} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: insets.bottom + spacing.xxxl, gap: spacing.lg }}>
         <View style={styles.block}>
           <Text style={styles.blockTitle}>What is this about?</Text>
+          {metaQuery.isLoading && <Text style={{ color: colors.muted }}>Loading support topics…</Text>}
+          {(metaQuery.isError || (!metaQuery.isLoading && !meta?.categories.length)) && (
+            <View style={{ gap: spacing.sm }}>
+              <Text style={{ color: colors.error }}>Support topics could not be loaded.</Text>
+              <PrimaryButton title="Try again" variant="secondary" onPress={() => { void metaQuery.refetch(); }} loading={metaQuery.isRefetching} testID="ticket-categories-retry" />
+            </View>
+          )}
           <View style={styles.chips}>
             {(meta?.categories ?? []).map((c) => {
               const active = category === c.key;

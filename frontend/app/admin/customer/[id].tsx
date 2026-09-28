@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, StatusBadge, BrandMonogram, LoadingView, EmptyState } from "@/src/components/ui";
+import { ScreenBackground, StatusBadge, BrandMonogram, LoadingView, EmptyState, QueryErrorView } from "@/src/components/ui";
 import { api } from "@/src/api/client";
 import { formatNaira, formatMoney, formatDate, formatDateTime, initials } from "@/src/lib/format";
 import { ticketStatusLabel } from "@/src/lib/support";
@@ -32,10 +32,11 @@ export default function AdminCustomerDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [tab, setTab] = useState<(typeof TABS)[number]>("Trades");
 
-  const { data, isLoading } = useQuery({ queryKey: ["admin-user", id], queryFn: () => api.get<Detail>(`/admin/users/${id}`) });
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({ queryKey: ["admin-user", id], queryFn: () => api.get<Detail>(`/admin/users/${id}`) });
 
   const money = (value:number, opts: {decimals?:number;showSign?:boolean}={}) => formatMoney(value,data?.user.currency||"NGN",data?.user.minor_digits??2,opts);
-  if (isLoading || !data) return <ScreenBackground><StackHeader title="Customer" /><LoadingView /></ScreenBackground>;
+  if (isLoading) return <ScreenBackground><StackHeader title="Customer" /><LoadingView /></ScreenBackground>;
+  if (isError || !data) return <ScreenBackground><StackHeader title="Customer" /><QueryErrorView title="Customer unavailable" onRetry={() => { void refetch(); }} retrying={isRefetching} /></ScreenBackground>;
 
   const { user, stats } = data;
   const Row = ({ label, value }: { label: string; value: string }) => (

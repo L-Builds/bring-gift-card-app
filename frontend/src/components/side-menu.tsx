@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
-import { Text, View, Pressable, Animated, Dimensions, ScrollView, Platform } from "react-native";
+import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { Text, View, Pressable, Animated, ScrollView, Platform, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@react-native-vector-icons/ionicons";
@@ -9,39 +9,40 @@ import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { initials } from "@/src/lib/format";
 
-const { width } = Dimensions.get("window");
-const DRAWER_W = Math.min(340, width * 0.84);
-
 const SideMenuContext = createContext<{ open: () => void; close: () => void } | undefined>(undefined);
 
 export function SideMenuProvider({ children }: { children: React.ReactNode }) {
+  const { width } = useWindowDimensions();
+  const drawerWidth = Math.min(340, width * 0.84);
   const [visible, setVisible] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const tx = useRef(new Animated.Value(-DRAWER_W)).current;
-  const fade = useRef(new Animated.Value(0)).current;
+  const [tx] = useState(() => new Animated.Value(-drawerWidth));
+  const [fade] = useState(() => new Animated.Value(0));
 
-  const open = useCallback(() => setVisible(true), []);
+  const open = useCallback(() => { setMounted(true); setVisible(true); }, []);
   const close = useCallback(() => setVisible(false), []);
 
   useEffect(() => {
     if (visible) {
-      setMounted(true);
-      Animated.parallel([
+      const animation = Animated.parallel([
         Animated.timing(tx, { toValue: 0, duration: 240, useNativeDriver: Platform.OS !== "web" }),
         Animated.timing(fade, { toValue: 1, duration: 240, useNativeDriver: Platform.OS !== "web" }),
-      ]).start();
-    } else if (mounted) {
-      Animated.parallel([
-        Animated.timing(tx, { toValue: -DRAWER_W, duration: 220, useNativeDriver: Platform.OS !== "web" }),
-        Animated.timing(fade, { toValue: 0, duration: 220, useNativeDriver: Platform.OS !== "web" }),
-      ]).start(() => setMounted(false));
+      ]);
+      animation.start();
+      return () => animation.stop();
     }
-  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+    const animation = Animated.parallel([
+        Animated.timing(tx, { toValue: -drawerWidth, duration: 220, useNativeDriver: Platform.OS !== "web" }),
+        Animated.timing(fade, { toValue: 0, duration: 220, useNativeDriver: Platform.OS !== "web" }),
+      ]);
+    animation.start(({ finished }) => { if (finished) setMounted(false); });
+    return () => animation.stop();
+  }, [visible, drawerWidth, tx, fade]);
 
   return (
     <SideMenuContext.Provider value={{ open, close }}>
       {children}
-      {mounted && <DrawerContent tx={tx} fade={fade} onClose={close} />}
+      {mounted && <DrawerContent tx={tx} fade={fade} drawerWidth={drawerWidth} onClose={close} />}
     </SideMenuContext.Provider>
   );
 }
@@ -52,7 +53,7 @@ export function useSideMenu() {
   return ctx;
 }
 
-function DrawerContent({ tx, fade, onClose }: { tx: Animated.Value; fade: Animated.Value; onClose: () => void }) {
+function DrawerContent({ tx, fade, drawerWidth, onClose }: { tx: Animated.Value; fade: Animated.Value; drawerWidth: number; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -62,13 +63,13 @@ function DrawerContent({ tx, fade, onClose }: { tx: Animated.Value; fade: Animat
 
   const go = (path: string) => {
     onClose();
-    setTimeout(() => router.push(path as any), 220);
+    router.push(path as any);
   };
 
   const doLogout = async () => {
     onClose();
     await logout();
-    setTimeout(() => router.replace("/"), 220);
+    router.replace("/");
   };
 
   const MenuRow = ({ icon, label, onPress, color, right }: any) => (
@@ -97,10 +98,10 @@ function DrawerContent({ tx, fade, onClose }: { tx: Animated.Value; fade: Animat
 
   return (
     <View style={StyleSheetAbsolute}>
-      <Animated.View style={[styles.overlay, { opacity: fade }]}>
+      <Animated.View style={[styles.overlay, { left: drawerWidth, opacity: fade }]}>
         <Pressable style={{ flex: 1 }} onPress={onClose} testID="menu-overlay" />
       </Animated.View>
-      <Animated.View style={[styles.drawer, { transform: [{ translateX: tx }], paddingTop: insets.top + spacing.md }]}>
+      <Animated.View style={[styles.drawer, { width: drawerWidth, transform: [{ translateX: tx }], paddingTop: insets.top + spacing.md }]}>
         <View style={styles.brandRow}>
           <Image source={require("../../assets/brand/logo-blue.png")} style={styles.brandLogo} contentFit="contain" />
           <View style={{ flex: 1 }}>
@@ -175,13 +176,11 @@ function DrawerContent({ tx, fade, onClose }: { tx: Animated.Value; fade: Animat
 const StyleSheetAbsolute = { position: "absolute" as const, top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, elevation: 1000 };
 
 const useStyles = makeStyles((colors) => ({
-  // Dim only the page area outside the drawer. Keeping the scrim to the
-  // right of DRAWER_W leaves the open menu at full brightness.
+   // Dim only the page area outside the drawer.
   overlay: {
     position: "absolute",
     top: 0,
     bottom: 0,
-    left: DRAWER_W,
     right: 0,
     backgroundColor: colors.overlay,
     zIndex: 1,
@@ -191,7 +190,6 @@ const useStyles = makeStyles((colors) => ({
     top: 0,
     bottom: 0,
     left: 0,
-    width: DRAWER_W,
     backgroundColor: colors.screenBgAlt,
     paddingHorizontal: spacing.lg,
     zIndex: 2,

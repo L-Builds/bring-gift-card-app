@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, StatusBadge, BrandMonogram, LoadingView, EmptyState } from "@/src/components/ui";
+import { ScreenBackground, StatusBadge, BrandMonogram, LoadingView, EmptyState, QueryErrorView } from "@/src/components/ui";
 import { api } from "@/src/api/client";
 import { formatNaira, formatMoney, formatDate } from "@/src/lib/format";
 
@@ -27,7 +27,7 @@ export default function AdminTrades() {
   const router = useRouter();
   const [filter, setFilter] = useState("PENDING_REVIEW");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({
     queryKey: ["admin-trades", filter],
     queryFn: () => api.get<{ trades: AdminTrade[] }>(`/admin/trades?status=${filter}`),
   });
@@ -50,6 +50,8 @@ export default function AdminTrades() {
 
       {isLoading ? (
         <LoadingView />
+      ) : isError || !data ? (
+        <QueryErrorView title="Trade queue unavailable" onRetry={() => { void refetch(); }} retrying={isRefetching} />
       ) : (
         <FlatList
           data={data?.trades ?? []}

@@ -81,6 +81,44 @@ async def test_concurrent_rate_upserts_preserve_versions_and_audit(http,actors):
     assert await s.db.audit.count_documents({'target':t['rate_id'],'action':'rate.updated'})==6
 
 
+async def test_referral_link_is_one_time_under_parallel_requests(http,actors):
+    codes=[];ids=[]
+    for _ in range(2):
+        uid=uuid.uuid4().hex;code='BGC'+uuid.uuid4().hex[:12].upper()
+        await s.db.users.insert_one({'id':uid,'email':uid+'@example.com','phone':uid,
+            'full_name':'Referrer','role':'customer','currency':'NGN','market_code':'NG',
+            'minor_digits':2,'referral_code':code})
+        codes.append(code);ids.append(uid)
+    results=await asyncio.gather(*[http.post('/api/referral/apply',headers=actors[2],json={'code':code}) for code in codes])
+    assert sorted(r.status_code for r in results)==[200,400],[r.text for r in results]
+    linked=await s.db.users.find_one({'id':actors[0]['id']})
+    assert linked['referred_by'] in ids
+    assert (await http.post('/api/referral/apply',headers=actors[2],json={'code':codes[0]})).status_code==400
+
+
+async def test_referral_codes_are_case_insensitively_unique_and_signup_retries(http,actors,monkeypatch):
+    from persistence import DuplicateKeyError
+    code='BGC'+uuid.uuid4().hex[:12].upper()
+    existing=uuid.uuid4().hex
+    await s.db.users.insert_one({'id':existing,'email':existing+'@example.com','phone':existing,
+        'full_name':'Referrer','role':'customer','currency':'NGN','market_code':'NG',
+        'minor_digits':2,'referral_code':code})
+    duplicate=uuid.uuid4().hex
+    with pytest.raises(DuplicateKeyError):
+        await s.db.users.insert_one({'id':duplicate,'email':duplicate+'@example.com','phone':duplicate,
+            'full_name':'Duplicate','role':'customer','currency':'NGN','market_code':'NG',
+            'minor_digits':2,'referral_code':code.lower()})
+    fresh='BGC'+uuid.uuid4().hex[:12].upper()
+    choices=iter((code,fresh))
+    monkeypatch.setattr(s,'new_referral_code',lambda:next(choices))
+    uid=uuid.uuid4().hex
+    response=await http.post('/api/auth/signup',json={'full_name':'New Customer','email':uid+'@example.com',
+        'phone':'+23480'+str(int(uid[:12],16)),'password':'long-enough-password','market_code':'NG','accepted_terms':True})
+    assert response.status_code==200,response.text
+    created=await s.db.users.find_one({'email':uid+'@example.com'})
+    assert created['referral_code']==fresh
+
+
 async def test_parallel_dispatch_calls_provider_once(http,actors,monkeypatch):
     pid=await configure_provider(http,actors)
     await s.db.payout_accounts.update_one({'id':actors[4]['id']},{'$set':{'verified':True,'payout_provider_id':pid,'bank_code':'058'}})

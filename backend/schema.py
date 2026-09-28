@@ -4,7 +4,7 @@ Amounts, ownership, identity, status, idempotency and indexed query fields have
 typed SQL columns. No MongoDB client, BSON storage or database emulation service.
 """
 from sqlalchemy import (MetaData, Table, Column, Text, BigInteger, Boolean, LargeBinary,
-                        DateTime, CheckConstraint, ForeignKeyConstraint, Index, UniqueConstraint)
+                        DateTime, CheckConstraint, ForeignKeyConstraint, Index, UniqueConstraint, func)
 from sqlalchemy.dialects.postgresql import JSONB
 
 metadata = MetaData()
@@ -29,6 +29,8 @@ users = table('users', 'id email phone full_name role currency market_code refer
 Index('users_email_unique', users.c.email, unique=True)
 Index('users_phone_unique', users.c.phone, unique=True, postgresql_where=users.c.phone > '')
 Index('users_referral', users.c.referral_code)
+Index('users_referral_code_ci_unique', func.upper(users.c.referral_code), unique=True,
+      postgresql_where=(users.c.referral_code.is_not(None) & (users.c.referral_code != '')))
 Index('users_referred_by', users.c.referred_by)
 Index('users_created', users.c.created_at.desc())
 
@@ -117,4 +119,4 @@ upload_parts = Table('upload_parts', metadata,
     UniqueConstraint('session_id','part'), CheckConstraint('part BETWEEN 0 AND 3 AND octet_length(data) <= 3145728',name='upload_part_limit'))
 TABLES['upload_parts']=upload_parts
 
-SCHEMA_VERSION = '002_ledger_guards'
+SCHEMA_VERSION = '003_referral_uniqueness'

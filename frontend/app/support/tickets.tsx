@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, StatusBadge, LoadingView, EmptyState, PrimaryButton } from "@/src/components/ui";
+import { ScreenBackground, StatusBadge, LoadingView, EmptyState, PrimaryButton, QueryErrorView } from "@/src/components/ui";
 import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
 import { formatDateTime } from "@/src/lib/format";
@@ -19,7 +19,7 @@ export default function SupportTickets() {
   const router = useRouter();
   const { isGuest, loading } = useAuth();
 
-  const { data, isLoading, refetch, isRefetching } = useQuery({
+  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ["support-tickets"],
     queryFn: () => api.get<{ tickets: Ticket[]; unread: number }>("/support/tickets"),
     enabled: !isGuest,
@@ -37,6 +37,8 @@ export default function SupportTickets() {
       } />
       {isLoading ? (
         <LoadingView />
+      ) : isError || !data ? (
+        <QueryErrorView title="Support tickets unavailable" onRetry={() => { void refetch(); }} retrying={isRefetching} />
       ) : (
         <FlatList
           data={data?.tickets ?? []}

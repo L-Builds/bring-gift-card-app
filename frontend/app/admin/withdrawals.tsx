@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, StatusBadge, LoadingView, EmptyState, PrimaryButton } from "@/src/components/ui";
+import { ScreenBackground, StatusBadge, LoadingView, EmptyState, PrimaryButton, QueryErrorView } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { api, ApiError } from "@/src/api/client";
 import { formatNaira, formatMoney, formatDate } from "@/src/lib/format";
@@ -38,7 +38,7 @@ export default function AdminWithdrawals() {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({
     queryKey: ["admin-withdrawals", filter],
     queryFn: () => api.get<{ withdrawals: WD[] }>(`/admin/withdrawals?status=${filter}`),
   });
@@ -112,6 +112,8 @@ export default function AdminWithdrawals() {
 
       {isLoading ? (
         <LoadingView />
+      ) : isError || !data ? (
+        <QueryErrorView title="Withdrawals unavailable" onRetry={() => { void refetch(); }} retrying={isRefetching} />
       ) : (
         <FlatList
           data={data?.withdrawals ?? []}

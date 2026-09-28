@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, LoadingView } from "@/src/components/ui";
+import { ScreenBackground, LoadingView, QueryErrorView } from "@/src/components/ui";
 import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
 
@@ -19,7 +19,7 @@ export default function AdminHome() {
   const router = useRouter();
   const { isAdmin, loading } = useAuth();
 
-  const { data, isLoading } = useQuery({ queryKey: ["admin-stats"], queryFn: () => api.get<Stats>("/admin/stats"), enabled: isAdmin });
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({ queryKey: ["admin-stats"], queryFn: () => api.get<Stats>("/admin/stats"), enabled: isAdmin });
 
   if (loading) return <ScreenBackground><LoadingView /></ScreenBackground>;
   if (!isAdmin) return <Redirect href="/(tabs)" />;
@@ -49,19 +49,21 @@ export default function AdminHome() {
       <StackHeader title="Admin Panel" onBack={() => router.replace("/(tabs)/profile")} />
       {isLoading ? (
         <LoadingView />
+      ) : isError || !data ? (
+        <QueryErrorView title="Operations unavailable" subtitle="We could not verify the current trade, payout and support queues." onRetry={() => { void refetch(); }} retrying={isRefetching} />
       ) : (
         <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: insets.bottom + spacing.xxxl, gap: spacing.lg }}>
           <View style={styles.statRow}>
-            <Stat icon="time" label="Pending trades" value={data?.pending_trades ?? 0} color={colors.warning} />
-            <Stat icon="cash" label="Pending payouts" value={data?.pending_withdrawals ?? 0} color={colors.brandPrimary} />
+            <Stat icon="time" label="Pending trades" value={data.pending_trades} color={colors.warning} />
+            <Stat icon="cash" label="Pending payouts" value={data.pending_withdrawals} color={colors.brandPrimary} />
           </View>
           <View style={styles.statRow}>
-            <Stat icon="chatbubbles" label="Open support" value={data?.open_tickets ?? 0} color={colors.info} />
+            <Stat icon="chatbubbles" label="Open support" value={data.open_tickets} color={colors.info} />
           </View>
 
           <Text style={styles.sectionTitle}>Core operations</Text>
-          <Link icon="swap-horizontal" title="Trade Queue" sub="Review submitted gift-card trades" badge={data?.pending_trades ?? 0} onPress={() => router.push("/admin/trades")} />
-          <Link icon="cash-outline" title="Withdrawals" sub="Process the company payout workflow" badge={data?.pending_withdrawals ?? 0} onPress={() => router.push("/admin/withdrawals")} />
+          <Link icon="swap-horizontal" title="Trade Queue" sub="Review submitted gift-card trades" badge={data.pending_trades} onPress={() => router.push("/admin/trades")} />
+          <Link icon="cash-outline" title="Withdrawals" sub="Process the company payout workflow" badge={data.pending_withdrawals} onPress={() => router.push("/admin/withdrawals")} />
           <Link icon="pricetags-outline" title="Catalog & Rates" sub="Update availability and payout rates" onPress={() => router.push("/admin/catalog")} />
 
           <Link icon="globe-outline" title="Countries & Currencies" sub="Manage supported payout markets" onPress={() => router.push("/admin/markets")} />
@@ -69,7 +71,7 @@ export default function AdminHome() {
           <Link icon="shield-checkmark-outline" title="Production Setup" sub="Readiness and company legal documents" onPress={() => router.push("/admin/production")} />
           <Text style={styles.sectionTitle}>Customer operations</Text>
           <Link icon="people-outline" title="Customers" sub="Review customer account activity" onPress={() => router.push("/admin/customers")} />
-          <Link icon="chatbubbles-outline" title="Support Tickets" sub="Reply to customer support cases" badge={data?.open_tickets ?? 0} onPress={() => router.push("/admin/support")} />
+          <Link icon="chatbubbles-outline" title="Support Tickets" sub="Reply to customer support cases" badge={data.open_tickets} onPress={() => router.push("/admin/support")} />
         </ScrollView>
       )}
     </ScreenBackground>

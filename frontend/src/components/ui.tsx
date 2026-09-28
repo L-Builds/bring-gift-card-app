@@ -159,6 +159,20 @@ export function EmptyState({ icon, title, subtitle }: { icon: any; title: string
   );
 }
 
+export function QueryErrorView({ title = "Could not load this page", subtitle = "Please check your connection and try again.", onRetry, retrying = false }: {
+  title?: string;
+  subtitle?: string;
+  onRetry: () => void;
+  retrying?: boolean;
+}) {
+  return (
+    <View style={{ flex: 1, justifyContent: "center", paddingHorizontal: spacing.lg }}>
+      <EmptyState icon="cloud-offline-outline" title={title} subtitle={subtitle} />
+      <PrimaryButton title="Try again" onPress={onRetry} loading={retrying} testID="query-retry" />
+    </View>
+  );
+}
+
 export const useStyles = makeStyles((colors) => ({
   btn: {
     height: 56,

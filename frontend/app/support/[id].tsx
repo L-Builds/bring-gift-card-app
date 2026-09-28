@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, StatusBadge, LoadingView } from "@/src/components/ui";
+import { ScreenBackground, StatusBadge, LoadingView, QueryErrorView } from "@/src/components/ui";
 import { TicketThread } from "@/src/components/ticket-thread";
 import { useToast } from "@/src/components/toast";
 import { api, ApiError } from "@/src/api/client";
@@ -20,13 +20,14 @@ export default function TicketDetail() {
   const qc = useQueryClient();
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({
     queryKey: ["support-ticket", id],
     queryFn: () => api.get<{ ticket: Ticket; messages: TicketMessage[] }>(`/support/tickets/${id}`),
     refetchInterval: 10000,
   });
 
-  if (isLoading || !data) return <ScreenBackground><StackHeader title="Ticket" /><LoadingView /></ScreenBackground>;
+  if (isLoading) return <ScreenBackground><StackHeader title="Ticket" /><LoadingView /></ScreenBackground>;
+  if (isError || !data) return <ScreenBackground><StackHeader title="Ticket" /><QueryErrorView title="Ticket unavailable" onRetry={() => { void refetch(); }} retrying={isRefetching} /></ScreenBackground>;
   const { ticket, messages } = data;
   const closed = ticket.status === "CLOSED";
 

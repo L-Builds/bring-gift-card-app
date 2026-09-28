@@ -8,7 +8,7 @@ import * as ImagePicker from "expo-image-picker";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, StatusBadge, BrandMonogram, PrimaryButton, LoadingView } from "@/src/components/ui";
+import { ScreenBackground, StatusBadge, BrandMonogram, PrimaryButton, LoadingView, QueryErrorView } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { api, uploadImage, ApiError } from "@/src/api/client";
 import { formatNaira, formatMoney, toMinor, formatDateTime } from "@/src/lib/format";
@@ -36,9 +36,9 @@ export default function TradeDetail() {
   const [images, setImages] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
-  const { data, isLoading, refetch } = useQuery({ queryKey: ["trade", id], queryFn: () => api.get<Trade>(`/trades/${id}`) });
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({ queryKey: ["trade", id], queryFn: () => api.get<Trade>(`/trades/${id}`) });
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <ScreenBackground>
         <StackHeader title="Trade Details" />
@@ -46,6 +46,7 @@ export default function TradeDetail() {
       </ScreenBackground>
     );
   }
+  if (isError || !data) return <ScreenBackground><StackHeader title="Trade Details" /><QueryErrorView title="Trade unavailable" onRetry={() => { void refetch(); }} retrying={isRefetching} /></ScreenBackground>;
 
   const needInfo = data.status === "NEED_MORE_INFO";
   const payout = data.approved_payout_kobo ?? data.expected_payout_kobo;

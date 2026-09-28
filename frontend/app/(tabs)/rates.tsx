@@ -1,13 +1,13 @@
 import { useCardRates, rateLabel } from "@/src/lib/market";
 import React, { useMemo, useState } from "react";
-import { View, Text, TextInput, Pressable, FlatList, ScrollView, Modal } from "react-native";
+import { View, Text, TextInput, Pressable, FlatList, ScrollView, Modal, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { Image } from "expo-image";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
-import { BrandMonogram, LoadingView, EmptyState } from "@/src/components/ui";
+import { BrandMonogram, LoadingView, EmptyState, QueryErrorView } from "@/src/components/ui";
 import { api } from "@/src/api/client";
 import { formatNaira } from "@/src/lib/format";
 
@@ -40,6 +40,8 @@ export default function Rates() {
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const compact = width < 400;
   const router = useRouter();
   const [chip, setChip] = useState("All Cards");
   const [q, setQ] = useState("");
@@ -64,7 +66,7 @@ export default function Rates() {
   if (category) params.set("category", category);
   if (q.trim()) params.set("q", q.trim());
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({
     queryKey: ["rates", chip, q],
     queryFn: () => api.get<{ brands: Brand[] }>(`/brands?${params.toString()}`, false),
   });
@@ -124,8 +126,19 @@ export default function Rates() {
         </ScrollView>
       </View>
 
+      {rates.isError && (
+        <View style={{ marginHorizontal: spacing.lg, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.warningBg, flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+          <Text style={{ color: colors.warning, flex: 1, fontWeight: "600" }}>Current card rates could not be loaded.</Text>
+          <Pressable onPress={() => { void rates.refetch(); }} accessibilityRole="button" testID="rates-retry-rates">
+            <Text style={{ color: colors.brandPrimary, fontWeight: "800" }}>{rates.isRefetching ? "Checking…" : "Try again"}</Text>
+          </Pressable>
+        </View>
+      )}
+
       {isLoading ? (
         <LoadingView />
+      ) : isError || !data ? (
+        <QueryErrorView title="Could not load cards" onRetry={() => { void refetch(); }} retrying={isRefetching} />
       ) : (
         <FlatList
           data={data?.brands ?? []}
@@ -143,11 +156,21 @@ export default function Rates() {
               testID={`rates-brand-${item.id}`}
             >
               <BrandIcon brand={item} />
-              <Text style={styles.rowName}>{item.name}</Text>
-              <View style={styles.rowRight}>
-                <Text style={styles.rowRate}>{rateLabel(item.id, rates.data)}</Text>
-                <Ionicons name="chevron-forward" size={20} color={colors.muted} />
-              </View>
+              {compact ? (
+                <View style={styles.rowContent}>
+                  <Text style={styles.rowName} numberOfLines={2}>{item.name}</Text>
+                  <Text style={styles.rowRate} numberOfLines={1}>{rates.isError ? "Rates unavailable" : rates.isLoading ? "Checking rates…" : rateLabel(item.id, rates.data)}</Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={[styles.rowName, styles.rowNameDesktop]}>{item.name}</Text>
+                  <View style={styles.rowRight}>
+                    <Text style={styles.rowRate}>{rates.isError ? "Rates unavailable" : rates.isLoading ? "Checking rates…" : rateLabel(item.id, rates.data)}</Text>
+                    <Ionicons name="chevron-forward" size={20} color={colors.muted} />
+                  </View>
+                </>
+              )}
+              {compact && <Ionicons name="chevron-forward" size={20} color={colors.muted} />}
             </Pressable>
           )}
         />
@@ -215,7 +238,9 @@ const useStyles = makeStyles((colors) => ({
   emptyList: { minHeight: 280, justifyContent: "center" },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 82, paddingHorizontal: spacing.lg, backgroundColor: colors.surface },
   rowDivider: { borderBottomWidth: 1, borderBottomColor: colors.divider },
-  rowName: { flex: 1, fontSize: 16, fontWeight: "600", color: colors.onSurface },
+  rowContent: { flex: 1, minWidth: 0, gap: 3 },
+  rowName: { fontSize: 16, fontWeight: "600", color: colors.onSurface },
+  rowNameDesktop: { flex: 1 },
   rowRight: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   rowRate: { fontSize: 14, fontWeight: "600", color: colors.onSurface },
   modalOverlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: "flex-end" },

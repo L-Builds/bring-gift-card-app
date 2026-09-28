@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, LoadingView, EmptyState } from "@/src/components/ui";
+import { ScreenBackground, LoadingView, EmptyState, QueryErrorView } from "@/src/components/ui";
 import { api } from "@/src/api/client";
 import { formatNaira, formatMoney, initials } from "@/src/lib/format";
 
@@ -20,7 +20,7 @@ export default function AdminCustomers() {
   const router = useRouter();
   const [q, setQ] = useState("");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({
     queryKey: ["admin-users", q],
     queryFn: () => api.get<{ users: Customer[] }>(`/admin/users?q=${encodeURIComponent(q)}`),
   });
@@ -46,6 +46,8 @@ export default function AdminCustomers() {
 
       {isLoading ? (
         <LoadingView />
+      ) : isError || !data ? (
+        <QueryErrorView title="Customers unavailable" onRetry={() => { void refetch(); }} retrying={isRefetching} />
       ) : (
         <FlatList
           data={data?.users ?? []}
