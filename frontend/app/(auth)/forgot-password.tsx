@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, TextInput, Pressable } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -54,7 +55,7 @@ export default function ForgotPassword() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.screenBg }}>
+    <LinearGradient colors={[colors.screenBgAlt, colors.screenBg]} style={{ flex: 1 }}>
       <KeyboardAwareScrollView bottomOffset={20} contentContainerStyle={{ paddingBottom: spacing.xxxl }}>
         <View style={[styles.top, { paddingTop: insets.top + spacing.md }]}>
           <Pressable style={styles.back} onPress={() => router.back()} testID="forgot-back">
@@ -90,7 +91,7 @@ export default function ForgotPassword() {
           )}
         </View>
       </KeyboardAwareScrollView>
-    </View>
+    </LinearGradient>
   );
 }
 

@@ -20,16 +20,16 @@ export default function RootLayout() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <SafeAreaProvider>
+        <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#F3F8FF" }}>
+          <SafeAreaProvider style={{ flex: 1, backgroundColor: "#F3F8FF" }}>
             <KeyboardProvider>
               <AuthProvider>
                 <ToastProvider>
                   <LiveAlertsProvider>
                     <SideMenuProvider>
-                      <StatusBar style="dark" />
+                      <StatusBar style="dark" backgroundColor="transparent" translucent />
                       <RouteAccessGuard>
-                        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#EAF2FF" } }} />
+                        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F3F8FF" } }} />
                       </RouteAccessGuard>
                     </SideMenuProvider>
                   </LiveAlertsProvider>
