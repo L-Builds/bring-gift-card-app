@@ -175,7 +175,17 @@ function DrawerContent({ tx, fade, onClose }: { tx: Animated.Value; fade: Animat
 const StyleSheetAbsolute = { position: "absolute" as const, top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, elevation: 1000 };
 
 const useStyles = makeStyles((colors) => ({
-  overlay: { ...StyleSheetAbsolute, backgroundColor: colors.overlay },
+  // Dim only the page area outside the drawer. Keeping the scrim to the
+  // right of DRAWER_W leaves the open menu at full brightness.
+  overlay: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: DRAWER_W,
+    right: 0,
+    backgroundColor: colors.overlay,
+    zIndex: 1,
+  },
   drawer: {
     position: "absolute",
     top: 0,
@@ -184,6 +194,8 @@ const useStyles = makeStyles((colors) => ({
     width: DRAWER_W,
     backgroundColor: colors.screenBgAlt,
     paddingHorizontal: spacing.lg,
+    zIndex: 2,
+    elevation: 2,
   },
   brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.lg },
   brandLogo: { width: 54, height: 54 },
