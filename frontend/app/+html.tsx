@@ -40,6 +40,23 @@ export default function Root({ children }: PropsWithChildren) {
                 bottom: 0;
                 background: #F3F8FF;
               }
+              /*
+                React Native Web renders TextInput as native input/textarea elements.
+                Mobile Safari/Chrome add their own blue inner focus ring, which looks
+                like a second box inside Bring's designed field. Keep focus handling
+                on the app's outer field/wrapper and remove only the browser-native ring.
+              */
+              input:focus,
+              textarea:focus,
+              [contenteditable="true"]:focus {
+                outline: none !important;
+                outline-width: 0 !important;
+                box-shadow: none !important;
+              }
+              input,
+              textarea {
+                -webkit-tap-highlight-color: transparent;
+              }
               [role="tablist"] [role="tab"] * { overflow: visible !important; }
               [role="heading"], [role="heading"] * { overflow: visible !important; }
             `,

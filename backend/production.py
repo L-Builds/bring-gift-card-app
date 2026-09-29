@@ -257,7 +257,7 @@ class Production:
                 raise HTTPException(502, str(exc))
 
         @api.post("/admin/withdrawals/{wid}/dispatch")
-        async def dispatch(wid: str, x: DispatchIn, admin=Depends(s.require_admin)):
+        async def dispatch(wid: str, x: DispatchIn, admin=Depends(s.require_staff_scope("withdrawals"))):
             setting = await db.settings.find_one({"id": "payout"}) or {}
             pid = x.provider_id or setting.get("default", "manual")
             w = await db.withdrawals.find_one({"id": wid}, {"_id": 0})
@@ -294,7 +294,7 @@ class Production:
             return {"status": "PROCESSING", "message": "Submitted to provider. Await verified settlement."}
 
         @api.post("/admin/withdrawals/{wid}/reconcile")
-        async def reconcile(wid: str, admin=Depends(s.require_admin)):
+        async def reconcile(wid: str, admin=Depends(s.require_staff_scope("withdrawals"))):
             return await self.reconcile(wid)
 
         @api.post("/webhooks/payouts/{provider_id}")

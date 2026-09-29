@@ -323,9 +323,14 @@ class Cursor:
         self.repo,self.query,self.projection,self.session = repo,query,projection,session
         self.order = []
         self.for_update = False
+        self.offset = 0
 
     def sort(self, key, direction=1):
         self.order = key if isinstance(key,list) else [(key,direction)]
+        return self
+
+    def skip(self, count):
+        self.offset = max(0, int(count))
         return self
 
     async def to_list(self, length=None):
@@ -334,6 +339,7 @@ class Cursor:
             col = self.repo.column(key)
             stmt = stmt.order_by(col.asc().nulls_first() if direction==1 else col.desc().nulls_last())
         if length is not None: stmt = stmt.limit(length)
+        if self.offset: stmt = stmt.offset(self.offset)
         if self.for_update:
             if self.session is None: raise ValueError('Row locks require an explicit transaction')
             stmt = stmt.with_for_update()

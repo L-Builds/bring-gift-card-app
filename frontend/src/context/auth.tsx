@@ -13,6 +13,8 @@ export type User = {
   email: string;
   phone: string;
   role: "customer" | "admin";
+  staff_role?: "general_manager" | "manager" | "worker";
+  staff_permissions?: Array<"trades" | "withdrawals" | "support" | "customers">;
   country: string;
   currency: string;
   minor_digits: number;

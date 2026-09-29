@@ -9,69 +9,81 @@ import { StackHeader } from "@/src/components/stack-header";
 import { ScreenBackground, LoadingView, QueryErrorView } from "@/src/components/ui";
 import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
+import { canManageSettings, canManageStaff, canWorkIn } from "@/src/lib/staff-access";
 
 type Stats = { pending_trades: number; pending_withdrawals: number; open_tickets: number };
+type IconName = React.ComponentProps<typeof Ionicons>["name"];
+
+function AdminStat({ icon, label, value, color }: { icon: IconName; label: string; value: number; color: string }) {
+  const styles = useStyles();
+  return <View style={styles.stat}>
+    <View style={[styles.statIcon, { backgroundColor: color + "22" }]}><Ionicons name={icon} size={22} color={color} /></View>
+    <Text style={styles.statValue}>{value}</Text>
+    <Text style={styles.statLabel}>{label}</Text>
+  </View>;
+}
+
+function AdminLink({ icon, title, sub, onPress, badge }: { icon: IconName; title: string; sub: string; onPress: () => void; badge?: number }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  return <Pressable style={styles.link} onPress={onPress} testID={`admin-link-${title.toLowerCase().replace(/\s/g, "-")}`}>
+    <View style={styles.linkIcon}><Ionicons name={icon} size={24} color={colors.brandPrimary} /></View>
+    <View style={{ flex: 1 }}>
+      <Text style={styles.linkTitle}>{title}</Text>
+      <Text style={styles.linkSub}>{sub}</Text>
+    </View>
+    {!!badge && badge > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{badge}</Text></View>}
+    <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+  </Pressable>;
+}
 
 export default function AdminHome() {
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { isAdmin, loading } = useAuth();
+  const { isAdmin, loading, user } = useAuth();
+  const showSummary = user?.staff_role !== "worker";
 
-  const { data, isLoading, isError, isRefetching, refetch } = useQuery({ queryKey: ["admin-stats"], queryFn: () => api.get<Stats>("/admin/stats"), enabled: isAdmin });
+  const { data, isLoading, isError, isRefetching, refetch } = useQuery({ queryKey: ["admin-stats"], queryFn: () => api.get<Stats>("/admin/stats"), enabled: isAdmin && showSummary });
 
   if (loading) return <ScreenBackground><LoadingView /></ScreenBackground>;
   if (!isAdmin) return <Redirect href="/(tabs)" />;
 
-  const Stat = ({ icon, label, value, color }: any) => (
-    <View style={styles.stat}>
-      <View style={[styles.statIcon, { backgroundColor: color + "22" }]}><Ionicons name={icon} size={22} color={color} /></View>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-
-  const Link = ({ icon, title, sub, onPress, badge }: any) => (
-    <Pressable style={styles.link} onPress={onPress} testID={`admin-link-${title.toLowerCase().replace(/\s/g, "-")}`}>
-      <View style={styles.linkIcon}><Ionicons name={icon} size={24} color={colors.brandPrimary} /></View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.linkTitle}>{title}</Text>
-        <Text style={styles.linkSub}>{sub}</Text>
-      </View>
-      {badge > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{badge}</Text></View>}
-      <Ionicons name="chevron-forward" size={18} color={colors.muted} />
-    </Pressable>
-  );
-
   return (
     <ScreenBackground>
       <StackHeader title="Admin Panel" onBack={() => router.replace("/(tabs)/profile")} />
-      {isLoading ? (
+      {showSummary && isLoading ? (
         <LoadingView />
-      ) : isError || !data ? (
+      ) : showSummary && (isError || !data) ? (
         <QueryErrorView title="Operations unavailable" subtitle="We could not verify the current trade, payout and support queues." onRetry={() => { void refetch(); }} retrying={isRefetching} />
       ) : (
         <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: insets.bottom + spacing.xxxl, gap: spacing.lg }}>
+          {showSummary && data && <>
           <View style={styles.statRow}>
-            <Stat icon="time" label="Pending trades" value={data.pending_trades} color={colors.warning} />
-            <Stat icon="cash" label="Pending payouts" value={data.pending_withdrawals} color={colors.brandPrimary} />
+            <AdminStat icon="time" label="Pending trades" value={data.pending_trades} color={colors.warning} />
+            <AdminStat icon="cash" label="Pending payouts" value={data.pending_withdrawals} color={colors.brandPrimary} />
           </View>
           <View style={styles.statRow}>
-            <Stat icon="chatbubbles" label="Open support" value={data.open_tickets} color={colors.info} />
+            <AdminStat icon="chatbubbles" label="Open support" value={data.open_tickets} color={colors.info} />
           </View>
+          </>}
 
           <Text style={styles.sectionTitle}>Core operations</Text>
-          <Link icon="swap-horizontal" title="Trade Queue" sub="Review submitted gift-card trades" badge={data.pending_trades} onPress={() => router.push("/admin/trades")} />
-          <Link icon="cash-outline" title="Withdrawals" sub="Process the company payout workflow" badge={data.pending_withdrawals} onPress={() => router.push("/admin/withdrawals")} />
-          <Link icon="pricetags-outline" title="Catalog & Rates" sub="Update availability and payout rates" onPress={() => router.push("/admin/catalog")} />
+          {canWorkIn(user, "trades") && <AdminLink icon="swap-horizontal" title="Trade Queue" sub="Review submitted gift-card trades" badge={data?.pending_trades} onPress={() => router.push("/admin/trades")} />}
+          {canWorkIn(user, "withdrawals") && <AdminLink icon="cash-outline" title="Withdrawals" sub="Process the company payout workflow" badge={data?.pending_withdrawals} onPress={() => router.push("/admin/withdrawals")} />}
+          {canManageSettings(user) && <>
+          <AdminLink icon="pricetags-outline" title="Catalog & Rates" sub="Update availability and payout rates" onPress={() => router.push("/admin/catalog")} />
 
-          <Link icon="globe-outline" title="Countries & Currencies" sub="Manage supported payout markets" onPress={() => router.push("/admin/markets")} />
-          <Link icon="settings-outline" title="Payout Providers" sub="Company, Paystack, Flutterwave and additional providers" onPress={() => router.push("/admin/payout-providers")} />
-          <Link icon="shield-checkmark-outline" title="Production Setup" sub="Readiness and company legal documents" onPress={() => router.push("/admin/production")} />
+          <AdminLink icon="globe-outline" title="Countries & Currencies" sub="Manage supported payout markets" onPress={() => router.push("/admin/markets")} />
+          <AdminLink icon="settings-outline" title="Payout Providers" sub="Company, Paystack, Flutterwave and additional providers" onPress={() => router.push("/admin/payout-providers")} />
+          <AdminLink icon="shield-checkmark-outline" title="Production Setup" sub="Readiness and company legal documents" onPress={() => router.push("/admin/production")} />
+          </>}
+          {canManageStaff(user) && <AdminLink icon="people-circle-outline" title="Staff" sub="Create managers and assign worker access" onPress={() => router.push("/admin/staff")} />}
           <Text style={styles.sectionTitle}>Customer operations</Text>
-          <Link icon="people-outline" title="Customers" sub="Review customer account activity" onPress={() => router.push("/admin/customers")} />
-          <Link icon="chatbubbles-outline" title="Support Tickets" sub="Reply to customer support cases" badge={data.open_tickets} onPress={() => router.push("/admin/support")} />
+          {canWorkIn(user, "customers") && <AdminLink icon="people-outline" title="Customers" sub="Review customer account activity" onPress={() => router.push("/admin/customers")} />}
+          {canWorkIn(user, "support") && <AdminLink icon="chatbubbles-outline" title="Support Tickets" sub="Reply to customer support cases" badge={data?.open_tickets} onPress={() => router.push("/admin/support")} />}
+          {user?.staff_role === "worker" && !user.staff_permissions?.length && <Text style={styles.linkSub}>Your manager has not assigned an operations area yet.</Text>}
         </ScrollView>
       )}
     </ScreenBackground>
