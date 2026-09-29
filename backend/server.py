@@ -91,6 +91,24 @@ KYC_ID_TYPES = {
 
 pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer = HTTPBearer(auto_error=False)
+STAFF_ROLES = {"general_manager", "manager", "worker"}
+WORKER_SCOPES = {"trades", "withdrawals", "support", "customers"}
+
+
+def valid_admin_password(password: str) -> bool:
+    return password.endswith("@admin") and len(password) >= 12 and len(password.encode("utf-8")) <= 72
+
+
+def staff_role(user: dict) -> str:
+    # Existing admin rows predate staff roles. Migration 004 marks them manager.
+    return user.get("staff_role") or "manager"
+
+
+def staff_permissions(user: dict) -> list[str]:
+    permissions = user.get("staff_permissions") or []
+    if not isinstance(permissions, list):
+        return []
+    return sorted(set(permissions) & WORKER_SCOPES)
 
 db = Database(DATABASE_URL, os.environ.get("DATABASE_SCHEMA", "public"))
 
@@ -218,7 +236,25 @@ async def current_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(b
 async def require_admin(user: dict = Depends(current_user)) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(403, "Admins only")
+    if staff_role(user) not in {"general_manager", "manager"}:
+        raise HTTPException(403, "Management access required")
     return user
+
+
+def require_staff_scope(scope: str):
+    if scope not in WORKER_SCOPES:
+        raise ValueError("Unknown staff scope")
+
+    async def check(user: dict = Depends(current_user)) -> dict:
+        if user.get("role") != "admin":
+            raise HTTPException(403, "Admins only")
+        if staff_role(user) == "worker" and scope not in staff_permissions(user):
+            raise HTTPException(403, "This work area is not assigned to your account")
+        if staff_role(user) not in STAFF_ROLES:
+            raise HTTPException(403, "Invalid staff role")
+        return user
+
+    return check
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +397,20 @@ class AdminReasonIn(BaseModel):
     reason: str = Field(min_length=1, max_length=3000)
 
 
+class StaffCreateIn(BaseModel):
+    full_name: str = Field(min_length=2, max_length=120)
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=72)
+    staff_role: Literal["manager", "worker"]
+    staff_permissions: List[Literal["trades", "withdrawals", "support", "customers"]] = Field(default_factory=list)
+
+
+class StaffUpdateIn(BaseModel):
+    disabled: Optional[bool] = None
+    staff_permissions: Optional[List[Literal["trades", "withdrawals", "support", "customers"]]] = None
+    password: Optional[str] = Field(default=None, min_length=12, max_length=72)
+
+
 class BrandIn(BaseModel):
     name: str = Field(min_length=2, max_length=100)
     category: str = "Other"
@@ -377,7 +427,7 @@ class BrandIn(BaseModel):
 # Serialization helpers
 # ---------------------------------------------------------------------------
 def public_user(u: dict) -> dict:
-    return {
+    result = {
         "id": u["id"], "full_name": u["full_name"], "email": u["email"],
         "phone": u.get("phone", ""), "role": u.get("role", "customer"),
         "currency": u.get("currency", "NGN"), "minor_digits": u.get("minor_digits", 2), "market_code": u.get("market_code", "NG"),
@@ -386,6 +436,10 @@ def public_user(u: dict) -> dict:
         "auth_provider": u.get("auth_provider", "password"), "picture": u.get("picture", ""),
         "has_pin": bool(u.get("pin_hash")),
     }
+    if u.get("role") == "admin":
+        result["staff_role"] = staff_role(u)
+        result["staff_permissions"] = staff_permissions(u)
+    return result
 
 
 PIN_MAX_ATTEMPTS = 5
@@ -530,7 +584,8 @@ async def login(x: LoginIn):
     else:
         raise HTTPException(422, "Email or phone number is required")
     user = await db.users.find_one(identity)
-    if not user or not verify_pw(x.password, user.get("password_hash", "")) or user.get("disabled"):
+    if (not user or not verify_pw(x.password, user.get("password_hash", "")) or user.get("disabled")
+            or (user.get("role") == "admin" and not valid_admin_password(x.password))):
         raise HTTPException(401, error_message)
     return {"access_token": make_token(user), "user": public_user(user)}
 
@@ -559,6 +614,8 @@ async def google_session(x: SessionIn):
     user = await db.users.find_one({"email": email})
     if user and user.get("disabled"):
         raise HTTPException(401, "This account is disabled")
+    if user and user.get("role") == "admin":
+        raise HTTPException(403, "Admin accounts require password sign-in")
     if not user:
         raise HTTPException(409, "Create an account with your country and legal acceptance before linking Google")
     else:
@@ -611,6 +668,11 @@ async def reset_confirm(x: ResetConfirmIn):
             {"$set": {"used": True}}, session=session)
         if not doc:
             raise HTTPException(400, "Invalid or expired reset token")
+        account = await db.users.find_one({"id": doc["user_id"]}, session=session)
+        if not account:
+            raise HTTPException(400, "Invalid or expired reset token")
+        if account.get("role") == "admin" and not valid_admin_password(x.password):
+            raise HTTPException(422, "Admin password must be 12–72 UTF-8 bytes and end with @admin")
         await db.users.update_one({"id": doc["user_id"]}, {"$set": {"password_hash": hashed},
             "$inc": {"token_version": 1}}, session=session)
     await money.transaction(run)
@@ -683,16 +745,26 @@ async def get_file(path: str, request: Request, creds: Optional[HTTPAuthorizatio
     if ".." in path or not re.fullmatch(r"bring-gift-card/uploads/[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+", path):
         raise HTTPException(400, "Invalid file path")
     owner_prefix = f"{APP_NAME}/uploads/{user['id']}/"
-    if user.get("role") != "admin" and not path.startswith(owner_prefix):
-        # An admin may attach evidence to a support reply. Only that ticket's
-        # customer can read it; this does not grant access to other admin files.
-        allowed = False
-        async for msg in db.support_messages.find({"image_paths": path, "sender": "admin"}, {"ticket_id": 1}):
-            if await db.support_tickets.find_one({"id": msg["ticket_id"], "user_id": user["id"]}):
-                allowed = True
-                break
-        if not allowed:
-            raise HTTPException(403, "Not allowed")
+    if not path.startswith(owner_prefix):
+        if user.get("role") == "admin":
+            if staff_role(user) == "worker":
+                scopes = staff_permissions(user)
+                allowed = (
+                    ("trades" in scopes and bool(await db.trades.find_one({"image_paths": path})))
+                    or ("support" in scopes and bool(await db.support_messages.find_one({"image_paths": path})))
+                )
+                if not allowed:
+                    raise HTTPException(403, "This attachment is outside your assigned work")
+        else:
+            # An admin may attach evidence to a support reply. Only that ticket's
+            # customer can read it; this does not grant access to other admin files.
+            allowed = False
+            async for msg in db.support_messages.find({"image_paths": path, "sender": "admin"}, {"ticket_id": 1}):
+                if await db.support_tickets.find_one({"id": msg["ticket_id"], "user_id": user["id"]}):
+                    allowed = True
+                    break
+            if not allowed:
+                raise HTTPException(403, "Not allowed")
     try:
         content, ctype = await run_in_threadpool(get_private if os.environ.get("S3_BUCKET") else _get_object, path)
     except Exception:
@@ -1270,7 +1342,7 @@ async def customer_close(ticket_id: str, user: dict = Depends(current_user)):
 
 
 @api.get("/admin/support")
-async def admin_tickets(status: str = "OPEN", q: str = "", admin: dict = Depends(require_admin)):
+async def admin_tickets(status: str = "OPEN", q: str = "", admin: dict = Depends(require_staff_scope("support"))):
     query: dict = {}
     if status and status.lower() != "all":
         query["status"] = status
@@ -1282,7 +1354,7 @@ async def admin_tickets(status: str = "OPEN", q: str = "", admin: dict = Depends
 
 
 @api.get("/admin/support/{ticket_id}")
-async def admin_ticket_detail(ticket_id: str, admin: dict = Depends(require_admin)):
+async def admin_ticket_detail(ticket_id: str, admin: dict = Depends(require_staff_scope("support"))):
     t = await db.support_tickets.find_one({"id": ticket_id}, {"_id": 0})
     if not t:
         raise HTTPException(404, "Ticket not found")
@@ -1295,7 +1367,7 @@ async def admin_ticket_detail(ticket_id: str, admin: dict = Depends(require_admi
 
 
 @api.post("/admin/support/{ticket_id}/reply")
-async def admin_reply(ticket_id: str, x: TicketMessageIn, admin: dict = Depends(require_admin)):
+async def admin_reply(ticket_id: str, x: TicketMessageIn, admin: dict = Depends(require_staff_scope("support"))):
     await validate_uploads(x.image_paths, admin)
     t = await db.support_tickets.find_one({"id": ticket_id})
     if not t:
@@ -1309,7 +1381,7 @@ async def admin_reply(ticket_id: str, x: TicketMessageIn, admin: dict = Depends(
 
 
 @api.post("/admin/support/{ticket_id}/status")
-async def admin_ticket_status(ticket_id: str, x: TicketStatusIn, admin: dict = Depends(require_admin)):
+async def admin_ticket_status(ticket_id: str, x: TicketStatusIn, admin: dict = Depends(require_staff_scope("support"))):
     t = await db.support_tickets.find_one({"id": ticket_id})
     if not t:
         raise HTTPException(404, "Ticket not found")
@@ -1323,6 +1395,86 @@ async def admin_ticket_status(ticket_id: str, x: TicketStatusIn, admin: dict = D
 # ===========================================================================
 # ADMIN
 # ===========================================================================
+def public_staff(u: dict) -> dict:
+    return {
+        "id": u["id"], "full_name": u.get("full_name", ""), "email": u["email"],
+        "staff_role": staff_role(u), "staff_permissions": staff_permissions(u),
+        "disabled": bool(u.get("disabled")), "created_at": u.get("created_at"),
+    }
+
+
+@api.get("/admin/staff")
+async def admin_staff(page: int = Query(default=1, ge=1), page_size: int = Query(default=50, ge=1, le=100),
+                      q: str = "", admin: dict = Depends(require_admin)):
+    query: dict = {"role": "admin"}
+    if staff_role(admin) == "manager":
+        query["staff_role"] = "worker"
+    if q.strip():
+        pattern = {"$regex": re.escape(q.strip()), "$options": "i"}
+        query["$or"] = [{"full_name": pattern}, {"email": pattern}]
+    total = await db.users.count_documents(query)
+    rows = await db.users.find(query, {"_id": 0, "password_hash": 0}).sort(
+        [("created_at", -1), ("id", 1)]).skip((page - 1) * page_size).to_list(page_size)
+    return {"staff": [public_staff(u) for u in rows], "total": total, "page": page, "page_size": page_size}
+
+
+@api.post("/admin/staff")
+async def admin_create_staff(x: StaffCreateIn, admin: dict = Depends(require_admin)):
+    if staff_role(admin) == "manager" and x.staff_role != "worker":
+        raise HTTPException(403, "Only the General Manager can create managers")
+    if not valid_admin_password(x.password):
+        raise HTTPException(422, "Admin password must be 12–72 UTF-8 bytes and end with @admin")
+    full_name = x.full_name.strip()
+    if len(full_name) < 2:
+        raise HTTPException(422, "Staff name is required")
+    if x.staff_role == "manager" and x.staff_permissions:
+        raise HTTPException(422, "Managers receive management access without worker scopes")
+    email = str(x.email).strip().lower()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(409, "Email already registered")
+    user = {
+        "id": new_id(), "full_name": full_name, "email": email, "phone": "",
+        "password_hash": hash_pw(x.password), "role": "admin", "staff_role": x.staff_role,
+        "staff_permissions": sorted(set(x.staff_permissions)) if x.staff_role == "worker" else [],
+        "notifications_enabled": True, "disabled": False, "created_at": now(),
+        "token_version": 0,
+    }
+    try:
+        await db.users.insert_one(user)
+    except DuplicateKeyError:
+        raise HTTPException(409, "Email already registered")
+    await production.audit(admin["id"], "staff.created", user["id"])
+    return {"staff": public_staff(user)}
+
+
+@api.patch("/admin/staff/{staff_id}")
+async def admin_update_staff(staff_id: str, x: StaffUpdateIn, admin: dict = Depends(require_admin)):
+    target = await db.users.find_one({"id": staff_id, "role": "admin"})
+    if not target:
+        raise HTTPException(404, "Staff account not found")
+    target_role = staff_role(target)
+    if target_role == "general_manager" or target["id"] == admin["id"]:
+        raise HTTPException(403, "This staff account cannot be changed here")
+    if staff_role(admin) == "manager" and target_role != "worker":
+        raise HTTPException(403, "Managers can manage workers only")
+    changes = {}
+    if x.disabled is not None:
+        changes["disabled"] = x.disabled
+    if x.staff_permissions is not None:
+        if target_role != "worker":
+            raise HTTPException(422, "Worker scopes apply to workers only")
+        changes["staff_permissions"] = sorted(set(x.staff_permissions))
+    if x.password is not None:
+        if not valid_admin_password(x.password):
+            raise HTTPException(422, "Admin password must be 12–72 UTF-8 bytes and end with @admin")
+        changes["password_hash"] = hash_pw(x.password)
+    if not changes:
+        raise HTTPException(422, "Choose a staff setting to update")
+    await db.users.update_one({"id": staff_id}, {"$set": changes, "$inc": {"token_version": 1}})
+    await production.audit(admin["id"], "staff.updated", staff_id)
+    return {"staff": public_staff({**target, **changes})}
+
+
 @api.get("/admin/stats")
 async def admin_stats(admin: dict = Depends(require_admin)):
     return {
@@ -1336,7 +1488,7 @@ async def admin_stats(admin: dict = Depends(require_admin)):
 
 
 @api.get("/admin/trades")
-async def admin_trades(status: str = "", admin: dict = Depends(require_admin)):
+async def admin_trades(status: str = "", admin: dict = Depends(require_staff_scope("trades"))):
     query: dict = {}
     if status and status.lower() != "all":
         query["status"] = status
@@ -1353,7 +1505,7 @@ async def admin_trades(status: str = "", admin: dict = Depends(require_admin)):
 
 
 @api.get("/admin/trades/{trade_id}")
-async def admin_trade_detail(trade_id: str, admin: dict = Depends(require_admin)):
+async def admin_trade_detail(trade_id: str, admin: dict = Depends(require_staff_scope("trades"))):
     t = await db.trades.find_one({"id": trade_id}, {"_id": 0})
     if not t:
         raise HTTPException(404, "Trade not found")
@@ -1365,20 +1517,20 @@ async def admin_trade_detail(trade_id: str, admin: dict = Depends(require_admin)
 
 
 @api.post("/admin/trades/{trade_id}/approve")
-async def admin_approve(trade_id: str, x: AdminApproveIn, admin: dict = Depends(require_admin)):
+async def admin_approve(trade_id: str, x: AdminApproveIn, admin: dict = Depends(require_staff_scope("trades"))):
     return await money.review(trade_id, "APPROVED", admin, x.approved_amount_kobo, x.note)
 
 @api.post("/admin/trades/{trade_id}/reject")
-async def admin_reject(trade_id: str, x: AdminReasonIn, admin: dict = Depends(require_admin)):
+async def admin_reject(trade_id: str, x: AdminReasonIn, admin: dict = Depends(require_staff_scope("trades"))):
     return await money.review(trade_id, "REJECTED", admin, note=x.reason)
 
 @api.post("/admin/trades/{trade_id}/need-info")
-async def admin_need_info(trade_id: str, x: AdminReasonIn, admin: dict = Depends(require_admin)):
+async def admin_need_info(trade_id: str, x: AdminReasonIn, admin: dict = Depends(require_staff_scope("trades"))):
     return await money.review(trade_id, "NEED_MORE_INFO", admin, note=x.reason)
 
 
 @api.get("/admin/withdrawals")
-async def admin_withdrawals(status: str = "", admin: dict = Depends(require_admin)):
+async def admin_withdrawals(status: str = "", admin: dict = Depends(require_staff_scope("withdrawals"))):
     query: dict = {}
     if status and status.lower() != "all":
         query["status"] = status
@@ -1391,11 +1543,11 @@ async def admin_withdrawals(status: str = "", admin: dict = Depends(require_admi
 
 
 @api.post("/admin/withdrawals/{withdrawal_id}/paid")
-async def admin_wd_paid(withdrawal_id: str, x: ManualPaidIn, admin: dict = Depends(require_admin)):
+async def admin_wd_paid(withdrawal_id: str, x: ManualPaidIn, admin: dict = Depends(require_staff_scope("withdrawals"))):
     return await money.settle(withdrawal_id, "PAID", admin["id"], "Company payment reference: " + x.external_reference, external_reference=x.external_reference)
 
 @api.post("/admin/withdrawals/{withdrawal_id}/reject")
-async def admin_wd_reject(withdrawal_id: str, x: AdminReasonIn, admin: dict = Depends(require_admin)):
+async def admin_wd_reject(withdrawal_id: str, x: AdminReasonIn, admin: dict = Depends(require_staff_scope("withdrawals"))):
     return await money.settle(withdrawal_id, "REJECTED", admin["id"], x.reason)
 
 
@@ -1461,8 +1613,8 @@ async def admin_rate_history(brand_id: str = "", limit: int = 200, admin: dict =
 
 
 @api.get("/admin/users")
-async def admin_users(q: str = "", kyc: str = "", admin: dict = Depends(require_admin)):
-    query: dict = {}
+async def admin_users(q: str = "", kyc: str = "", admin: dict = Depends(require_staff_scope("customers"))):
+    query: dict = {"role": "customer"} if staff_role(admin) == "worker" else {}
     if q.strip():
         rx = {"$regex": re.escape(q.strip()), "$options": "i"}
         query["$or"] = [{"full_name": rx}, {"email": rx}, {"phone": rx}, {"referral_code": rx}]
@@ -1481,9 +1633,9 @@ async def admin_users(q: str = "", kyc: str = "", admin: dict = Depends(require_
 
 
 @api.get("/admin/users/{user_id}")
-async def admin_user_detail(user_id: str, admin: dict = Depends(require_admin)):
+async def admin_user_detail(user_id: str, admin: dict = Depends(require_staff_scope("customers"))):
     u = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
-    if not u:
+    if not u or (staff_role(admin) == "worker" and u.get("role") != "customer"):
         raise HTTPException(404, "Customer not found")
     trades = await db.trades.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
     withdrawals = await db.withdrawals.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
@@ -1523,7 +1675,7 @@ async def _attach_customer(docs: list[dict]) -> None:
 
 
 @api.get("/admin/kyc")
-async def admin_kyc_list(status: str = "PENDING", admin: dict = Depends(require_admin)):
+async def admin_kyc_list(status: str = "PENDING", admin: dict = Depends(require_staff_scope("customers"))):
     query: dict = {}
     if status and status.lower() != "all":
         query["status"] = status
@@ -1533,7 +1685,7 @@ async def admin_kyc_list(status: str = "PENDING", admin: dict = Depends(require_
 
 
 @api.get("/admin/kyc/{kyc_id}")
-async def admin_kyc_detail(kyc_id: str, admin: dict = Depends(require_admin)):
+async def admin_kyc_detail(kyc_id: str, admin: dict = Depends(require_staff_scope("customers"))):
     k = await db.kyc_submissions.find_one({"id": kyc_id}, {"_id": 0})
     if not k:
         raise HTTPException(404, "Submission not found")
@@ -1557,7 +1709,7 @@ async def _review_kyc(kyc_id: str, admin: dict, verdict: str, reason: str) -> di
 
 
 @api.post("/admin/kyc/{kyc_id}/approve")
-async def admin_kyc_approve(kyc_id: str, admin: dict = Depends(require_admin)):
+async def admin_kyc_approve(kyc_id: str, admin: dict = Depends(require_staff_scope("customers"))):
     k = await _review_kyc(kyc_id, admin, "VERIFIED", "")
     await notify(k["user_id"], "Identity verified",
                  "Your identity verification has been approved.", "kyc", kyc_id)
@@ -1565,7 +1717,7 @@ async def admin_kyc_approve(kyc_id: str, admin: dict = Depends(require_admin)):
 
 
 @api.post("/admin/kyc/{kyc_id}/reject")
-async def admin_kyc_reject(kyc_id: str, x: AdminReasonIn, admin: dict = Depends(require_admin)):
+async def admin_kyc_reject(kyc_id: str, x: AdminReasonIn, admin: dict = Depends(require_staff_scope("customers"))):
     if not x.reason.strip():
         raise HTTPException(400, "A reason is required")
     k = await _review_kyc(kyc_id, admin, "REJECTED", x.reason.strip())

@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { useRouter, useSegments } from "expo-router";
 import { useAuth } from "@/src/context/auth";
+import { canVisitAdminRoute } from "@/src/lib/staff-access";
 
 function guestRouteIsPublic(segments: string[]) {
   if (segments.length === 0 || (segments.length === 1 && segments[0] === "index")) return true;
@@ -16,13 +17,14 @@ export function RouteAccessGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const rawSegments = useSegments();
   const segments = rawSegments as string[];
-  const { loading, isGuest, isAdmin } = useAuth();
+  const { loading, isGuest, isAdmin, user } = useAuth();
 
   const publicForGuest = guestRouteIsPublic(segments);
   const adminArea = segments[0] === "admin";
   const deferredKycRoute = segments[0] === "kyc" || (segments[0] === "admin" && segments[1] === "kyc");
   const blockGuest = !loading && isGuest && !publicForGuest;
   const blockCustomerFromAdmin = !loading && !isGuest && !isAdmin && adminArea;
+  const blockWorkerFromAdminRoute = !loading && !isGuest && adminArea && isAdmin && !canVisitAdminRoute(user, segments[1] || "index");
   const blockDeferredKyc = !loading && !isGuest && deferredKycRoute;
 
   useEffect(() => {
@@ -35,10 +37,14 @@ export function RouteAccessGuard({ children }: { children: React.ReactNode }) {
       router.replace("/(tabs)");
       return;
     }
+    if (blockWorkerFromAdminRoute) {
+      router.replace("/admin");
+      return;
+    }
     if (blockDeferredKyc) router.replace(isAdmin ? "/admin" : "/(tabs)/profile");
-  }, [blockCustomerFromAdmin, blockDeferredKyc, blockGuest, isAdmin, loading, router]);
+  }, [blockCustomerFromAdmin, blockDeferredKyc, blockGuest, blockWorkerFromAdminRoute, isAdmin, loading, router]);
 
   if (loading && !publicForGuest) return null;
-  if (blockGuest || blockCustomerFromAdmin || blockDeferredKyc) return null;
+  if (blockGuest || blockCustomerFromAdmin || blockWorkerFromAdminRoute || blockDeferredKyc) return null;
   return <>{children}</>;
 }

@@ -58,7 +58,8 @@ async def actors(http):
     user={"id":uid,"full_name":"Test Customer","email":uid+"@example.com","phone":uid,
         "role":"customer","currency":"NGN","market_code":"NG","minor_digits":2,
         "password_hash":s.hash_pw("test-password-123"),"pin_hash":s.hash_pw("5829")}
-    admin={**user,"id":aid,"email":aid+"@example.com","phone":aid,"role":"admin"}
+    admin={**user,"id":aid,"email":aid+"@example.com","phone":aid,"role":"admin",
+        "staff_role":"manager","staff_permissions":[],"password_hash":s.hash_pw("test-password-123@admin")}
     await s.db.users.insert_many([dict(user),dict(admin)])
     uh={"Authorization":"Bearer "+s.make_token(user)};ah={"Authorization":"Bearer "+s.make_token(admin)}
     account=(await http.post("/api/payout-accounts",headers=uh,json={"provider_name":"Company Bank","account_number":"0123456789","account_name":"Test Customer"})).json()

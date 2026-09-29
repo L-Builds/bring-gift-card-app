@@ -22,7 +22,7 @@ def table(name, strings='', integers='', booleans='', dates='', required=(), con
     return result
 
 
-users = table('users', 'id email phone full_name role currency market_code referral_code referred_by kyc_status',
+users = table('users', 'id email phone full_name role staff_role currency market_code referral_code referred_by kyc_status',
               'minor_digits money_revision token_version pin_failed', 'disabled notifications_enabled',
               'created_at last_login_at pin_set_at pin_locked_until terms_accepted_at', required=('id', 'email'),
               constraints=(CheckConstraint("minor_digits BETWEEN 0 AND 3", name='users_precision'),))
@@ -119,4 +119,4 @@ upload_parts = Table('upload_parts', metadata,
     UniqueConstraint('session_id','part'), CheckConstraint('part BETWEEN 0 AND 3 AND octet_length(data) <= 3145728',name='upload_part_limit'))
 TABLES['upload_parts']=upload_parts
 
-SCHEMA_VERSION = '003_referral_uniqueness'
+SCHEMA_VERSION = '004_staff_roles'
