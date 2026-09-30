@@ -24,6 +24,15 @@ async def test_public_catalog_only_lists_tradable_cards(http, actors):
     listed = (await http.get("/api/brands?market_code=NG&popular=true")).json()["brands"]
     assert any(b["id"] == brand_id and b["is_tradable"] for b in listed)
     assert (await http.get(f"/api/brands/{brand_id}?market_code=IN")).status_code == 404
+    settings = {"name": "Catalog Readiness Card", "is_active": True, "is_popular": False}
+    assert (await http.patch(f"/api/admin/brands/{brand_id}", headers=admin, json=settings)).status_code == 200
+    assert brand_id not in {b["id"] for b in (await http.get("/api/brands?market_code=NG&popular=true")).json()["brands"]}
+    assert brand_id in {b["id"] for b in (await http.get("/api/brands?market_code=NG")).json()["brands"]}
+    settings["is_active"] = False
+    assert (await http.patch(f"/api/admin/brands/{brand_id}", headers=admin, json=settings)).status_code == 200
+    assert brand_id not in {b["id"] for b in (await http.get("/api/brands?market_code=NG")).json()["brands"]}
+    settings["is_active"] = True
+    assert (await http.patch(f"/api/admin/brands/{brand_id}", headers=admin, json=settings)).status_code == 200
     assert (await http.delete(f'/api/admin/card-rates/{rate.json()["id"]}', headers=admin)).status_code == 200
     assert brand_id not in {b["id"] for b in (await http.get("/api/brands?market_code=NG")).json()["brands"]}
     admin_list = (await http.get("/api/admin/brands", headers=admin)).json()["brands"]

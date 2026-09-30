@@ -153,6 +153,10 @@ export function CatalogWorkspace({ initialTab = "catalog" }: { initialTab?: "cat
       <View style={desktop ? { width: 300, flexShrink: 0 } : { width: "100%" }}>
       <Panel>
         <Note>Select a card to manage its payout denominations. Only positive rates in active markets make an enabled card tradable.</Note>
+        {!brands.isError && brands.data?.brands.length === 0 && <>
+          <Note>No gift cards exist yet. Add one in Catalog before setting a rate.</Note>
+          <Action title="Open Catalog" onPress={() => router.push("/admin/catalog")} />
+        </>}
         {!brands.isError && brands.data?.brands.map((brand) =>
           <Action key={brand.id} title={`${form.id === brand.id ? "✓ " : ""}${brand.name} · ${readiness(brand)}`}
             onPress={() => selectBrand(brand)} />)}
