@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { View, useWindowDimensions } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/src/api/client";
 import { AdminPage, Panel, Field, Action, Toggle, Note } from "@/src/components/admin-form";
@@ -23,6 +24,8 @@ function roleLabel(role: StaffRole) {
 }
 
 export default function StaffManagement() {
+  const { width } = useWindowDimensions();
+  const desktop = width >= 1100;
   const { user } = useAuth();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -36,6 +39,7 @@ export default function StaffManagement() {
   const [passwordEdits, setPasswordEdits] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -97,6 +101,8 @@ export default function StaffManagement() {
 
   return <AdminPage title="Staff">
     <Note>General Managers and Managers oversee the team. Workers only see the operations areas assigned to them.</Note>
+    <View style={{ flexDirection: desktop ? "row" : "column", alignItems: "flex-start", gap: 16 }}>
+    <View style={desktop ? { width: 360, flexShrink: 0 } : { width: "100%" }}>
     <Panel>
       <Note>Create staff account</Note>
       <Field label="Full name" value={fullName} onChangeText={setFullName} autoComplete="name" />
@@ -108,7 +114,9 @@ export default function StaffManagement() {
       {newRole === "worker" && STAFF_SCOPES.map(scope => <Toggle key={scope.key} label={`${scope.label} — ${scope.description}`} value={newPermissions.includes(scope.key)} onChange={() => toggleNewPermission(scope.key)} />)}
       <Action title={busy ? "Creating account…" : "Create staff account"} onPress={() => { void createStaff(); }} disabled={busy || !canCreate} />
     </Panel>
+    </View>
 
+    <View style={desktop ? { flex: 1, gap: 16, minWidth: 0 } : { width: "100%", gap: 16 }}>
     <Note>Current staff</Note>
     <Panel>
       <Field label="Search staff by name or email" value={search} onChangeText={setSearch} autoCapitalize="none" returnKeyType="search" onSubmitEditing={() => { setPage(1); setQuery(search.trim()); }} />
@@ -125,11 +133,14 @@ export default function StaffManagement() {
         <Note>{member.full_name} · {roleLabel(member.staff_role)}{member.disabled ? " · Disabled" : " · Active"}</Note>
         <Note>{member.email}</Note>
         {member.staff_role === "worker" && <Note>Assigned: {member.staff_permissions?.length ? member.staff_permissions.map(scope => STAFF_SCOPES.find(item => item.key === scope)?.label ?? scope).join(", ") : "No operations areas"}</Note>}
-        {mayEdit && member.staff_role === "worker" && STAFF_SCOPES.map(scope => <Toggle key={scope.key} label={scope.label} value={selected.includes(scope.key)} onChange={() => togglePermissionEdit(member, scope.key)} />)}
-        {mayEdit && member.staff_role === "worker" && permissionEdits[member.id] && <Action title={busyId === member.id ? "Saving…" : "Save assigned areas"} onPress={() => { void updateStaff(member.id, { staff_permissions: selected }); }} disabled={busyId === member.id} />}
-        {mayEdit && <Field label="New temporary password" value={passwordEdits[member.id] ?? ""} onChangeText={value => setPasswordEdits(current => ({ ...current, [member.id]: value }))} secureTextEntry autoCapitalize="none" autoComplete="new-password" />}
-        {mayEdit && !!passwordEdits[member.id] && <Action title="Reset password" onPress={() => { void updateStaff(member.id, { password: passwordEdits[member.id] }); }} disabled={busyId === member.id || passwordEdits[member.id].length < 12 || !passwordEdits[member.id].endsWith("@admin")} />}
-        {mayEdit && <Action title={member.disabled ? "Enable account" : "Disable account"} onPress={() => { void updateStaff(member.id, { disabled: !member.disabled }); }} disabled={busyId === member.id} />}
+        {mayEdit && <Action title={expandedId === member.id ? "Hide controls" : "Manage account"} onPress={() => setExpandedId(current => current === member.id ? null : member.id)} />}
+        {mayEdit && expandedId === member.id && <>
+          {member.staff_role === "worker" && STAFF_SCOPES.map(scope => <Toggle key={scope.key} label={scope.label} value={selected.includes(scope.key)} onChange={() => togglePermissionEdit(member, scope.key)} />)}
+          {member.staff_role === "worker" && permissionEdits[member.id] && <Action title={busyId === member.id ? "Saving…" : "Save assigned areas"} onPress={() => { void updateStaff(member.id, { staff_permissions: selected }); }} disabled={busyId === member.id} />}
+          <Field label="New temporary password" value={passwordEdits[member.id] ?? ""} onChangeText={value => setPasswordEdits(current => ({ ...current, [member.id]: value }))} secureTextEntry autoCapitalize="none" autoComplete="new-password" />
+          {!!passwordEdits[member.id] && <Action title="Reset password" onPress={() => { void updateStaff(member.id, { password: passwordEdits[member.id] }); }} disabled={busyId === member.id || passwordEdits[member.id].length < 12 || !passwordEdits[member.id].endsWith("@admin")} />}
+          <Action title={member.disabled ? "Enable account" : "Disable account"} onPress={() => { void updateStaff(member.id, { disabled: !member.disabled }); }} disabled={busyId === member.id} />
+        </>}
       </Panel>;
     })}
     {!staff.isError && !!staff.data?.total && <Panel>
@@ -137,5 +148,7 @@ export default function StaffManagement() {
       {page > 1 && <Action title="Previous page" onPress={() => setPage(current => current - 1)} />}
       {page * staff.data.page_size < staff.data.total && <Action title="Next page" onPress={() => setPage(current => current + 1)} />}
     </Panel>}
+    </View>
+    </View>
   </AdminPage>;
 }

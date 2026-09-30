@@ -1,6 +1,8 @@
 import { Platform } from "react-native";
 import { storage } from "@/src/utils/storage";
 import { apiBaseUrl } from "@/config/public-env";
+import { queryClient } from "@/src/query-client";
+import { isAdminQueryKey, isPublicQueryAffectedByAdminWrite } from "@/src/lib/admin-query-keys";
 
 // Expo replaces this public value at build time. Production web uses the
 // same-origin Vercel /api proxy; native and local Expo dev use an explicit URL.
@@ -61,6 +63,12 @@ async function request<T>(path: string, init: RequestInit = {}, auth = true): Pr
     const msg = detail || "Something went wrong";
     throw new ApiError(typeof msg === "string" ? msg : "Request failed", res.status);
   }
+  if (path.startsWith("/admin/") && !["GET", "HEAD"].includes((init.method || "GET").toUpperCase())) {
+    void queryClient.invalidateQueries({
+      predicate: query => isAdminQueryKey(query.queryKey) || isPublicQueryAffectedByAdminWrite(path, query.queryKey),
+      refetchType: "active",
+    }).catch(() => {});
+  }
   return data as T;
 }
 
@@ -115,6 +123,39 @@ export async function uploadImage(uri: string): Promise<string> {
   if (!res.ok) throw new ApiError("Upload failed", res.status);
   const data = await res.json();
   return data.path as string;
+}
+
+// Brand logos use the bounded chunk transport so PNG transparency reaches the
+// server intact. Evidence uploads keep their existing JPEG normalization.
+export async function uploadBrandLogo(uri: string, brandId: string): Promise<void> {
+  const token = await getToken();
+  const chunkSize = 3 * 1024 * 1024;
+  let size: number;
+  let webBlob: Blob | undefined;
+  let nativeBytes: Uint8Array | undefined;
+  if (Platform.OS === "web") {
+    webBlob = await (await fetch(uri)).blob();
+    size = webBlob.size;
+  } else {
+    const { File } = await import("expo-file-system");
+    nativeBytes = await new File(uri).bytes();
+    size = nativeBytes.byteLength;
+  }
+  if (!size || size > 12 * 1024 * 1024) throw new ApiError("Logo must be under 12MB", 413);
+  const session = await api.post<{ id: string }>("/uploads/chunks", {
+    size, purpose: "brand_logo", brand_id: brandId,
+  });
+  for (let offset = 0, part = 0; offset < size; offset += chunkSize, part++) {
+    const body = webBlob ? await webBlob.slice(offset, offset + chunkSize).arrayBuffer()
+      : nativeBytes!.slice(offset, offset + chunkSize).buffer as ArrayBuffer;
+    const response = await fetch(`${BASE}/uploads/chunks/${session.id}/${part}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/octet-stream", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body,
+    });
+    if (!response.ok) throw new ApiError("Logo upload failed", response.status);
+  }
+  await api.post(`/uploads/chunks/${session.id}/complete`);
 }
 
 // Private image requests use Authorization headers, never JWTs in URLs.

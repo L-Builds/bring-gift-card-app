@@ -29,6 +29,7 @@ export function canVisitAdminRoute(user: User | null, route: string): boolean {
   const scope: Record<string, StaffScope> = {
     trade: "trades", trades: "trades", withdrawals: "withdrawals",
     support: "support", customer: "customers", customers: "customers",
+    verification: "customers",
   };
   const needed = scope[route];
   return !!needed && !!user.staff_permissions?.includes(needed);

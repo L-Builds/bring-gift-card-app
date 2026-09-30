@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, Pressable, FlatList, TextInput } from "react-native";
+import { View, Text, Pressable, FlatList, TextInput, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
@@ -18,6 +18,8 @@ export default function AdminCustomers() {
   const styles = useStyles();
   const { colors } = useTheme();
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const desktop = width >= 1100;
   const [q, setQ] = useState("");
 
   const { data, isLoading, isError, isRefetching, refetch } = useQuery({
@@ -53,10 +55,24 @@ export default function AdminCustomers() {
           data={data?.users ?? []}
           keyExtractor={(u) => u.id}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.xxxl, gap: spacing.md, paddingTop: spacing.xs }}
+          contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.xxxl, gap: desktop ? 0 : spacing.md, paddingTop: spacing.xs }}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={<EmptyState icon="people-outline" title="No customers found" subtitle="Try a different name, email or phone number." />}
+          ListHeaderComponent={desktop && data.users.length > 0 ? <View style={styles.tableHead}>
+            <Text style={[styles.tableHeading, { flex: 1.2 }]}>Customer</Text>
+            <Text style={[styles.tableHeading, { flex: 1.6 }]}>Email</Text>
+            <Text style={[styles.tableHeading, { flex: 1 }]}>Phone</Text>
+            <Text style={[styles.tableHeading, { flex: 0.7 }]}>Trades</Text>
+            <Text style={[styles.tableHeading, { flex: 1 }]}>Balance</Text>
+          </View> : null}
           renderItem={({ item }) => (
+            desktop ? <Pressable style={styles.tableRow} onPress={() => router.push(`/admin/customer/${item.id}`)} testID={`admin-customer-${item.id}`} accessibilityRole="button" accessibilityLabel={`Open customer ${item.full_name || item.email}`}>
+              <View style={[styles.tableIdentity, { flex: 1.2 }]}><View style={styles.tableAvatar}><Text style={styles.tableAvatarText}>{initials(item.full_name || item.email)}</Text></View><Text style={[styles.tablePrimary, { flex: 1 }]} numberOfLines={1}>{item.full_name || "Customer"}</Text></View>
+              <Text style={[styles.tablePrimary, { flex: 1.6 }]} numberOfLines={1}>{item.email}</Text>
+              <Text style={[styles.tablePrimary, { flex: 1 }]} numberOfLines={1}>{item.phone || "—"}</Text>
+              <Text style={[styles.tablePrimary, { flex: 0.7 }]}>{item.trades_count}</Text>
+              <Text style={[styles.tablePrimary, { flex: 1 }]} numberOfLines={1}>{formatMoney(item.balance_kobo,item.currency||"NGN",item.minor_digits??2)}</Text>
+            </Pressable> :
             <Pressable style={styles.card} onPress={() => router.push(`/admin/customer/${item.id}`)} testID={`admin-customer-${item.id}`}>
               <View style={styles.avatar}><Text style={styles.avatarText}>{initials(item.full_name || item.email)}</Text></View>
               <View style={{ flex: 1 }}>
@@ -91,4 +107,11 @@ const useStyles = makeStyles((colors) => ({
   meta: { color: colors.onSurfaceSecondary, fontSize: 13, marginTop: 1 },
   metaSmall: { color: colors.muted, fontSize: 11, marginTop: 2 },
   amount: { fontWeight: "800", color: colors.onSurface, fontSize: 14 },
+  tableHead: { flexDirection: "row", gap: spacing.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md, backgroundColor: colors.surfaceSecondary, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
+  tableHeading: { color: colors.onSurfaceSecondary, fontSize: 12, fontWeight: "800" },
+  tableRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 68, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
+  tableIdentity: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  tableAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.brandSecondary, alignItems: "center", justifyContent: "center" },
+  tableAvatarText: { color: colors.brandPrimary, fontWeight: "800", fontSize: 11 },
+  tablePrimary: { color: colors.onSurface, fontSize: 13, fontWeight: "700" },
 }));

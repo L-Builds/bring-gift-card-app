@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, Pressable, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, spacing } from "@/src/theme";
 
@@ -11,6 +11,9 @@ export function StackHeader({ title, onBack, right }: { title: string; onBack?: 
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const router = useRouter();
+  const pathname = usePathname();
+  // The admin workspace supplies one persistent header for its routes.
+  if (pathname.startsWith("/admin")) return null;
   return (
     <View style={[styles.wrap, { paddingTop: insets.top + spacing.sm }]}>
       <Pressable style={styles.back} onPress={onBack ?? (() => router.back())} testID="stack-back">

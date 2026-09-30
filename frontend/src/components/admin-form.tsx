@@ -1,17 +1,35 @@
 import React from "react";
-import { View, Text, TextInput, Pressable, ScrollView, Switch } from "react-native";
+import { View, Text, TextInput, Pressable, ScrollView, Switch, useWindowDimensions } from "react-native";
 import { makeStyles, spacing, radius, useTheme } from "@/src/theme";
 import { ScreenBackground } from "./ui";
 import { StackHeader } from "./stack-header";
 
 export function AdminPage({ title, children }: { title: string; children: React.ReactNode }) {
-  return <ScreenBackground><StackHeader title={title} /><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 80 }}>{children}</ScrollView></ScreenBackground>;
+  const { width } = useWindowDimensions();
+  return <ScreenBackground>
+    <StackHeader title={title} />
+    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ width: "100%", maxWidth: 1120, alignSelf: "center", padding: width >= 1024 ? spacing.xxl : spacing.lg, gap: spacing.md, paddingBottom: 80 }}>
+      {children}
+    </ScrollView>
+  </ScreenBackground>;
 }
 export function Panel({ children }: { children: React.ReactNode }) {
   const s = styles(); return <View style={s.panel}>{children}</View>;
 }
 export function Field({ label, ...props }: React.ComponentProps<typeof TextInput> & { label: string }) {
-  const s = styles(); return <View style={{ gap: 6 }}><Text style={s.label}>{label}</Text><TextInput {...props} accessibilityLabel={label} style={[s.input, props.style]} /></View>;
+  const s = styles();
+  const { colors } = useTheme();
+  const [focused, setFocused] = React.useState(false);
+  return <View testID="admin-form-field" style={{ gap: 6 }}>
+    <Text style={s.label}>{label}</Text>
+    <TextInput
+      {...props}
+      accessibilityLabel={label}
+      onFocus={(event) => { setFocused(true); props.onFocus?.(event); }}
+      onBlur={(event) => { setFocused(false); props.onBlur?.(event); }}
+      style={[s.input, focused && { borderColor: colors.brandPrimary, borderWidth: 2 }, props.style]}
+    />
+  </View>;
 }
 export function Action({ title, onPress, disabled = false }: { title: string; onPress: () => void; disabled?: boolean }) {
   const s = styles(); return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[s.action, disabled && { opacity: 0.45 }]}><Text style={s.actionText}>{title}</Text></Pressable>;

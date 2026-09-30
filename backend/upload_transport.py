@@ -6,6 +6,7 @@ The legacy multipart endpoint remains available with its unchanged contract.
 """
 import hashlib
 from datetime import timedelta
+from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -16,6 +17,8 @@ MAX_IMAGE = 12 * 1024 * 1024
 
 class BeginUpload(BaseModel):
     size: int = Field(gt=0, le=MAX_IMAGE)
+    purpose: Literal['evidence', 'brand_logo'] = 'evidence'
+    brand_id: str = ''
 
 
 def router(s):
@@ -28,8 +31,15 @@ def router(s):
 
     @api.post('')
     async def begin(x:BeginUpload,user=Depends(s.current_user)):
+        if x.purpose == 'brand_logo':
+            if user.get('role') != 'admin' or s.staff_role(user) == 'worker':
+                raise HTTPException(403, 'Management access required')
+            if not x.brand_id or not await s.db.brands.find_one({'id':x.brand_id}):
+                raise HTTPException(404, 'Brand not found')
         uid=s.new_id()
-        await s.db.upload_sessions.insert_one({'id':uid,'user_id':user['id'],'size':x.size,'expires_at':s.now()+timedelta(hours=1)})
+        await s.db.upload_sessions.insert_one({'id':uid,'user_id':user['id'],'size':x.size,
+            'purpose':x.purpose,'brand_id':x.brand_id if x.purpose == 'brand_logo' else '',
+            'expires_at':s.now()+timedelta(hours=1)})
         return {'id':uid,'chunk_size':CHUNK}
 
     @api.put('/{uid}/{part}')
@@ -55,13 +65,30 @@ def router(s):
     async def complete(uid:str,user=Depends(s.current_user)):
         async def run(session):
             row=await owned(uid,user,session)
-            if row.get('path'):return {'path':row['path']}
+            if row.get('path'):
+                return {'brand_id':row['brand_id'],'has_logo':True} if row.get('purpose') == 'brand_logo' else {'path':row['path']}
             parts=await s.db.upload_parts.find({'session_id':uid},session=session).sort('part',1).to_list(4)
             count=(row['size']+CHUNK-1)//CHUNK
             if len(parts)!=count or [p['part'] for p in parts]!=list(range(count)):
                 raise HTTPException(409,'Upload is incomplete')
             data=b''.join(p['data'] for p in parts)
             if len(data)!=row['size']:raise HTTPException(422,'Upload size mismatch')
+            if row.get('purpose') == 'brand_logo':
+                if user.get('role') != 'admin' or s.staff_role(user) == 'worker':
+                    raise HTTPException(403, 'Management access required')
+                brand_id=row['brand_id']
+                if not await s.db.brands.find_one({'id':brand_id},session=session):
+                    raise HTTPException(404, 'Brand not found')
+                image=await run_in_threadpool(s.clean_brand_logo,data)
+                path=f"{s.APP_NAME}/brand-logos/{brand_id}/{uid}.png"
+                try:await s.store_brand_logo(path,image)
+                except Exception:raise HTTPException(502,'Logo storage failed, please retry')
+                await s.db.brands.update_one({'id':brand_id},{'$set':{'logo_path':path}},session=session)
+                await s.db.audit.insert_one({'actor':user['id'],'action':'brand.logo.updated',
+                    'target':brand_id,'at':s.now()},session=session)
+                await s.db.upload_sessions.update_one({'id':uid},{'$set':{'path':path}},session=session)
+                await s.db.upload_parts.delete_many({'session_id':uid},session=session)
+                return {'brand_id':brand_id,'has_logo':True}
             image=await run_in_threadpool(s.clean_image,data)
             # A deterministic object key makes retry after an uncertain commit safe.
             path=f"{s.APP_NAME}/uploads/{user['id']}/{uid}.jpg"

@@ -1,6 +1,6 @@
 import { Action } from "@/src/components/admin-form";
 import React, { useState } from "react";
-import { View, Text, Pressable, FlatList, ScrollView, Modal, TextInput } from "react-native";
+import { View, Text, Pressable, FlatList, ScrollView, Modal, TextInput, useWindowDimensions } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
@@ -27,6 +27,8 @@ const FILTERS = [
 export default function AdminWithdrawals() {
   const styles = useStyles();
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const desktop = width >= 1180;
   const toast = useToast();
   const qc = useQueryClient();
   const [filter, setFilter] = useState("PENDING");
@@ -116,13 +118,16 @@ export default function AdminWithdrawals() {
         <QueryErrorView title="Withdrawals unavailable" onRetry={() => { void refetch(); }} retrying={isRefetching} />
       ) : (
         <FlatList
+          key={desktop ? "withdrawal-grid" : "withdrawal-list"}
+          numColumns={desktop ? 2 : 1}
+          columnWrapperStyle={desktop ? { gap: spacing.md } : undefined}
           data={data?.withdrawals ?? []}
           keyExtractor={(w) => w.id}
           contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.xxxl, gap: spacing.md, paddingTop: spacing.xs }}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={<EmptyState icon="cash-outline" title="No withdrawals" subtitle="No requests in this status." />}
           renderItem={({ item }) => (
-            <View style={styles.card} testID={`admin-wd-${item.id}`}>
+            <View style={[styles.card, desktop && styles.desktopCard]} testID={`admin-wd-${item.id}`}>
               <View style={styles.cardTop}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.amount}>{formatMoney(item.amount_kobo,item.currency||"NGN",item.minor_digits??2)}</Text>
@@ -201,6 +206,7 @@ const useStyles = makeStyles((colors) => ({
   chipIdle: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   chipText: { fontSize: 14, fontWeight: "700" },
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm },
+  desktopCard: { flex: 1, minWidth: 0 },
   cardTop: { flexDirection: "row", alignItems: "center" },
   amount: { fontSize: 18, fontWeight: "800", color: colors.onSurface },
   meta: { color: colors.muted, fontSize: 12, marginTop: 1 },

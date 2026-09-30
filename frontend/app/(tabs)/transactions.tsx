@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, Pressable, FlatList, ScrollView, Modal, TextInput, Image } from "react-native";
+import { View, Text, Pressable, FlatList, ScrollView, Modal, TextInput } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
@@ -10,10 +10,12 @@ import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
 import { formatNaira, formatDate, toMinor } from "@/src/lib/format";
 import { useToast } from "@/src/components/toast";
+import { BrandIcon } from "@/src/components/brand-icon";
 
 type Txn = {
   id: string; kind: string; title: string; subtitle: string; amount_kobo: number;
   signed: number; status: string; ref: string; color: string; date: string; icon: string;
+  brand_id?: string; brand_has_logo?: boolean; brand_logo_version?: string;
 };
 
 const CHIPS = [
@@ -23,23 +25,6 @@ const CHIPS = [
 ];
 
 const ICON: Record<string, any> = { card: "card", bank: "business", gift: "gift", refund: "refresh" };
-const BRAND_ART: Record<string, any> = {
-  "apple/itunes": require("../../assets/home/brands/apple-itunes.png"),
-  "apple itunes": require("../../assets/home/brands/apple-itunes.png"),
-  amazon: require("../../assets/home/brands/amazon.png"),
-  "google play": require("../../assets/home/brands/google-play.png"),
-  steam: require("../../assets/home/brands/steam.png"),
-  playstation: require("../../assets/home/brands/playstation.png"),
-  xbox: require("../../assets/home/brands/xbox.png"),
-  "razer gold": require("../../assets/home/brands/razer-gold.png"),
-  nike: require("../../assets/home/brands/nike.png"),
-};
-
-function brandArt(title: string) {
-  const key = title.trim().toLowerCase();
-  return BRAND_ART[key] ?? null;
-}
-
 function parseDateStart(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const d = new Date(`${value}T00:00:00`);
@@ -175,7 +160,6 @@ export default function Transactions() {
           ListEmptyComponent={<EmptyState icon="receipt-outline" title="No transactions yet" subtitle="Your trades, withdrawals and refunds will show up here." />}
           renderItem={({ item }) => {
             const receipt = (item.kind === "sale" && item.status === "Completed") || (item.kind === "withdrawal" && item.status === "Completed");
-            const art = item.kind === "sale" ? brandArt(item.title) : null;
             const open = () => {
               if (item.kind === "sale") router.push(`/trade/${item.id}`);
               else if (item.kind === "withdrawal" && receipt) router.push(`/receipt?kind=withdrawal&id=${item.id}`);
@@ -185,7 +169,10 @@ export default function Transactions() {
             return (
               <Pressable style={styles.txnCard} onPress={item.kind === "refund" ? undefined : open} testID={`txn-${item.id}`}>
                 <View style={[styles.txnIcon, { backgroundColor: item.color + "16" }]}>
-                  {art ? <Image source={art} style={styles.brandImage} resizeMode="contain" /> : <Ionicons name={ICON[item.icon] || "card"} size={24} color={item.color} />}
+                  {item.kind === "sale" && item.brand_id
+                    ? <BrandIcon brand={{ id: item.brand_id, name: item.title, color: item.color,
+                        has_logo: item.brand_has_logo, logo_version: item.brand_logo_version }} size={42} />
+                    : <Ionicons name={ICON[item.icon] || "card"} size={24} color={item.color} />}
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.txnTitle}>{item.title}</Text>

@@ -32,7 +32,7 @@ from passlib.context import CryptContext
 from money import Money
 from production import Production, encrypt, decrypt, ManualPaidIn
 from payout_providers import ProviderError
-from private_services import clean_image, put_private, get_private, send_reset
+from private_services import clean_image, clean_brand_logo, put_private, get_private, send_reset
 from legal_documents import default_legal
 from dotenv import load_dotenv
 
@@ -682,9 +682,51 @@ async def reset_confirm(x: ResetConfirmIn):
 # ===========================================================================
 # CATALOG / RATES  (public rates are read-only for guests)
 # ===========================================================================
+def brand_response(brand: dict, *, tradable: bool = False) -> dict:
+    """Expose a stable public logo URL without exposing the private object key."""
+    result = {k: v for k, v in brand.items() if k not in {"_id", "logo_path"}}
+    path = brand.get("logo_path") or ""
+    result["has_logo"] = bool(path)
+    result["logo_version"] = hashlib.sha256(path.encode()).hexdigest()[:12] if path else ""
+    result["is_tradable"] = tradable
+    return result
+
+
+def brand_logo_metadata(brand: Optional[dict]) -> dict:
+    path = (brand or {}).get("logo_path") or ""
+    return {"brand_has_logo": bool(path),
+            "brand_logo_version": hashlib.sha256(path.encode()).hexdigest()[:12] if path else ""}
+
+
+async def attach_brand_logos(trades: list[dict]) -> None:
+    ids = sorted({t.get("brand_id") for t in trades if t.get("brand_id")})
+    if not ids:
+        return
+    brands = await db.brands.find({"id": {"$in": ids}}, {"id": 1, "logo_path": 1}).to_list(len(ids))
+    by_id = {b["id"]: b for b in brands}
+    for trade in trades:
+        trade.update(brand_logo_metadata(by_id.get(trade.get("brand_id"))))
+
+
+async def tradable_brand_ids(market_code: str = "") -> set[str]:
+    """A listed card needs an active payout market and a usable denomination."""
+    market_filter: dict = {"code": market_code, "is_active": True} if market_code else {"is_active": True}
+    markets = await db.markets.distinct("code", market_filter)
+    if not markets:
+        return set()
+    ids = await db.card_rates.distinct("brand_id", {
+        "market_code": {"$in": markets}, "is_active": True,
+        "face_value": {"$gt": 0}, "payout_minor": {"$gt": 0},
+    })
+    return set(ids)
+
+
 @api.get("/brands")
-async def list_brands(popular: bool = False, category: str = "", q: str = ""):
-    query: dict = {"is_active": True}
+async def list_brands(popular: bool = False, category: str = "", q: str = "", market_code: str = ""):
+    ids = await tradable_brand_ids(market_code)
+    if not ids:
+        return {"brands": []}
+    query: dict = {"is_active": True, "id": {"$in": sorted(ids)}}
     if popular:
         query["is_popular"] = True
     if category and category.lower() != "all":
@@ -692,21 +734,44 @@ async def list_brands(popular: bool = False, category: str = "", q: str = ""):
     if q:
         query["name"] = {"$regex": re.escape(q), "$options": "i"}
     cur = db.brands.find(query, {"_id": 0}).sort("sort_order", 1)
-    return {"brands": await cur.to_list(200)}
+    brands = await cur.to_list(500)
+    return {"brands": [brand_response(b, tradable=True) for b in brands
+                       if b.get("submission_types", ["physical", "ecode"])][:200]}
 
 
 @api.get("/brands/{brand_id}")
-async def get_brand(brand_id: str):
+async def get_brand(brand_id: str, market_code: str = ""):
     b = await db.brands.find_one({"id": brand_id, "is_active": True}, {"_id": 0})
-    if not b:
+    if not b or not b.get("submission_types", ["physical", "ecode"]) or brand_id not in await tradable_brand_ids(market_code):
         raise HTTPException(404, "Card not found")
-    return b
+    return brand_response(b, tradable=True)
 
 
 @api.get("/categories")
-async def categories():
-    cats = await db.brands.distinct("category", {"is_active": True})
+async def categories(market_code: str = ""):
+    ids = await tradable_brand_ids(market_code)
+    if not ids:
+        return {"categories": ["All"]}
+    cats = await db.brands.distinct("category", {"is_active": True, "id": {"$in": sorted(ids)}})
     return {"categories": ["All"] + sorted(cats)}
+
+
+@api.get("/brands/{brand_id}/logo")
+async def brand_logo(brand_id: str, request: Request):
+    brand = await db.brands.find_one({"id": brand_id}, {"logo_path": 1})
+    path = (brand or {}).get("logo_path") or ""
+    if not re.fullmatch(rf"{re.escape(APP_NAME)}/brand-logos/{re.escape(brand_id)}/[a-f0-9]{{32}}\.png", path):
+        raise HTTPException(404, "Logo not found")
+    etag = '"' + hashlib.sha256(path.encode()).hexdigest()[:12] + '"'
+    headers = {"Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff", "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    try:
+        content, _ = await run_in_threadpool(get_private if os.environ.get("S3_BUCKET") else _get_object, path)
+    except Exception:
+        logger.exception("brand logo read failed")
+        raise HTTPException(404, "Logo not found")
+    return Response(content=content, media_type="image/png", headers=headers)
 
 
 # ===========================================================================
@@ -717,6 +782,13 @@ async def store_image(path, data):
         await run_in_threadpool(put_private, path, data)
     else:
         await run_in_threadpool(_put_object, path, data, "image/jpeg")
+
+
+async def store_brand_logo(path, data):
+    if os.environ.get("S3_BUCKET"):
+        await run_in_threadpool(put_private, path, data, "image/png")
+    else:
+        await run_in_threadpool(_put_object, path, data, "image/png")
 
 
 @api.post("/uploads")
@@ -832,7 +904,7 @@ async def create_trade(x: TradeIn, user: dict = Depends(current_user)):
         await db.trades.insert_one(trade, session=session)
         await notify(user["id"], "Trade submitted",
                      f"Your {brand['name']} trade {trade['order_id']} is pending review.", "trade", trade["id"], session=session)
-        return public_trade(trade)
+        return public_trade({**trade, **brand_logo_metadata(brand)})
     return await money.transaction(submit)
 
 
@@ -842,7 +914,9 @@ async def my_trades(status: str = "", user: dict = Depends(current_user)):
     if status:
         query["status"] = status
     cur = db.trades.find(query, {"_id": 0}).sort("created_at", -1)
-    return {"trades": [public_trade(t) for t in await cur.to_list(200)]}
+    trades = await cur.to_list(200)
+    await attach_brand_logos(trades)
+    return {"trades": [public_trade(t) for t in trades]}
 
 
 @api.get("/trades/{trade_id}")
@@ -850,6 +924,7 @@ async def get_trade(trade_id: str, user: dict = Depends(current_user)):
     t = await db.trades.find_one({"id": trade_id, "user_id": user["id"]})
     if not t:
         raise HTTPException(404, "Trade not found")
+    await attach_brand_logos([t])
     return public_trade(t)
 
 
@@ -963,11 +1038,14 @@ def _wd_status_label(s: str) -> str:
 async def transactions(type: str = "all", status: str = "", user: dict = Depends(current_user)):
     items: list[dict] = []
     if type in ("all", "sales"):
-        for t in await db.trades.find({"user_id": user["id"]}, {"_id": 0}).to_list(300):
+        trades = await db.trades.find({"user_id": user["id"]}, {"_id": 0}).to_list(300)
+        await attach_brand_logos(trades)
+        for t in trades:
             amt = t.get("approved_payout_kobo") or t.get("expected_payout_kobo") or 0
             items.append({
                 "currency": t.get("currency", "NGN"), "minor_digits": t.get("minor_digits", 2),
-                "id": t["id"], "kind": "sale", "title": t["brand_name"],
+                "id": t["id"], "kind": "sale", "title": t["brand_name"], "brand_id": t["brand_id"],
+                "brand_has_logo": t["brand_has_logo"], "brand_logo_version": t["brand_logo_version"],
                 "subtitle": f"${t['card_value_usd']} {'E-code' if t['submission_type']=='ecode' else 'Gift Card'}",
                 "amount_kobo": amt, "signed": 1, "status": _trade_status_label(t["status"]),
                 "ref": t["order_id"], "color": t.get("brand_color", "#1F5AF6"),
@@ -1488,12 +1566,13 @@ async def admin_stats(admin: dict = Depends(require_admin)):
 
 
 @api.get("/admin/trades")
-async def admin_trades(status: str = "", admin: dict = Depends(require_staff_scope("trades"))):
+async def admin_trades(status: str = "", limit: int = 300, admin: dict = Depends(require_staff_scope("trades"))):
     query: dict = {}
     if status and status.lower() != "all":
         query["status"] = status
     cur = db.trades.find(query, {"_id": 0}).sort("created_at", -1)
-    trades = await cur.to_list(300)
+    trades = await cur.to_list(min(max(limit, 1), 300))
+    await attach_brand_logos(trades)
     # attach customer name
     for t in trades:
         u = await db.users.find_one({"id": t["user_id"]}, {"_id": 0, "full_name": 1, "email": 1})
@@ -1509,6 +1588,7 @@ async def admin_trade_detail(trade_id: str, admin: dict = Depends(require_staff_
     t = await db.trades.find_one({"id": trade_id}, {"_id": 0})
     if not t:
         raise HTTPException(404, "Trade not found")
+    await attach_brand_logos([t])
     u = await db.users.find_one({"id": t["user_id"]}, {"_id": 0, "password_hash": 0})
     t["customer"] = public_user(u) if u else None
     t["ecode"] = decrypt(t.pop("ecode_encrypted", "")) or t.get("ecode", "")
@@ -1554,7 +1634,10 @@ async def admin_wd_reject(withdrawal_id: str, x: AdminReasonIn, admin: dict = De
 @api.get("/admin/brands")
 async def admin_brands(admin: dict = Depends(require_admin)):
     cur = db.brands.find({}, {"_id": 0}).sort("sort_order", 1)
-    return {"brands": await cur.to_list(300)}
+    tradable = await tradable_brand_ids()
+    return {"brands": [brand_response(b, tradable=b.get("is_active", False) and b["id"] in tradable
+                       and bool(b.get("submission_types", ["physical", "ecode"])))
+                       for b in await cur.to_list(300)]}
 
 
 @api.post("/admin/brands")
@@ -1563,8 +1646,7 @@ async def admin_create_brand(x: BrandIn, admin: dict = Depends(require_admin)):
     b = {"id": new_id(), "slug": x.name.lower().replace(" ", "-"), "sort_order": count + 1,
          "created_at": now(), **x.model_dump()}
     await db.brands.insert_one(b)
-    b.pop("_id", None)
-    return b
+    return brand_response(b, tradable=False)
 
 
 @api.patch("/admin/brands/{brand_id}")
@@ -1578,7 +1660,22 @@ async def admin_update_brand(brand_id: str, x: BrandIn, admin: dict = Depends(re
             "id": new_id(), "brand_id": brand_id, "brand_name": x.name, "old": old.get("rate_kobo_per_usd"),
             "new": x.rate_kobo_per_usd, "by": admin["id"], "by_name": admin["full_name"], "at": now(),
         })
-    return await db.brands.find_one({"id": brand_id}, {"_id": 0})
+    saved = await db.brands.find_one({"id": brand_id}, {"_id": 0})
+    return brand_response(saved, tradable=saved["is_active"] and brand_id in await tradable_brand_ids())
+
+
+@api.delete("/admin/brands/{brand_id}/logo")
+async def admin_remove_brand_logo(brand_id: str, admin: dict = Depends(require_admin)):
+    brand = await db.brands.find_one({"id": brand_id})
+    if not brand:
+        raise HTTPException(404, "Brand not found")
+    async def remove(session):
+        await db.brands.update_one({"id": brand_id}, {"$unset": {"logo_path": ""}}, session=session)
+        await db.audit.insert_one({"actor": admin["id"], "action": "brand.logo.removed",
+                                   "target": brand_id, "at": now()}, session=session)
+    await db.transaction(remove)
+    updated = await db.brands.find_one({"id": brand_id}, {"_id": 0})
+    return brand_response(updated, tradable=updated["is_active"] and brand_id in await tradable_brand_ids())
 
 
 # ---------------------------------------------------------------------------

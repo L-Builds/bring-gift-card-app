@@ -8,13 +8,15 @@ import * as ImagePicker from "expo-image-picker";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, StatusBadge, BrandMonogram, PrimaryButton, LoadingView, QueryErrorView } from "@/src/components/ui";
+import { ScreenBackground, StatusBadge, PrimaryButton, LoadingView, QueryErrorView } from "@/src/components/ui";
+import { BrandIcon } from "@/src/components/brand-icon";
 import { useToast } from "@/src/components/toast";
 import { api, uploadImage, ApiError } from "@/src/api/client";
 import { formatNaira, formatMoney, toMinor, formatDateTime } from "@/src/lib/format";
 
 type Trade = {
-  id: string; order_id: string; brand_name: string; brand_color: string; submission_type: string;
+  id: string; order_id: string; brand_id: string; brand_name: string; brand_color: string;
+  brand_has_logo?: boolean; brand_logo_version?: string; submission_type: string;
   subcategory: string; country: string; card_value_usd: number; quantity: number;
   currency?:string; minor_digits?:number; unit_payout_minor?:number; rate_kobo_per_usd: number; expected_payout_kobo: number; approved_payout_kobo: number | null;
   status: string; reason: string; notes: string; ecode_masked?: string;
@@ -92,7 +94,8 @@ export default function TradeDetail() {
       <StackHeader title="Trade Details" />
       <KeyboardAwareScrollView bottomOffset={20} contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: insets.bottom + spacing.xxxl, gap: spacing.lg }}>
         <View style={styles.headCard}>
-          <BrandMonogram name={data.brand_name} color={data.brand_color} size={56} />
+          <BrandIcon brand={{ id: data.brand_id, name: data.brand_name, color: data.brand_color,
+            has_logo: data.brand_has_logo, logo_version: data.brand_logo_version }} size={56} />
           <View style={{ flex: 1 }}>
             <Text style={styles.brand}>{data.brand_name}</Text>
             <Text style={styles.order}>Order ID: {data.order_id}</Text>

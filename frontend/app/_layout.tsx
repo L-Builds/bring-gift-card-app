@@ -12,6 +12,7 @@ import { ToastProvider } from "@/src/components/toast";
 import { SideMenuProvider } from "@/src/components/side-menu";
 import { LiveAlertsProvider } from "@/src/components/live-alerts";
 import { RouteAccessGuard } from "@/src/components/route-access-guard";
+import { WebPwa } from "@/src/components/web-pwa";
 
 export default function RootLayout() {
   return (
@@ -24,6 +25,7 @@ export default function RootLayout() {
                 <ToastProvider>
                   <LiveAlertsProvider>
                     <SideMenuProvider>
+                      <WebPwa />
                       <StatusBar style="dark" />
                       <RouteAccessGuard>
                         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F3F8FF" } }} />

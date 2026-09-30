@@ -36,7 +36,7 @@ Index('users_created', users.c.created_at.desc())
 
 markets = table('markets', 'code name currency', 'minor_digits', 'is_active', required=('code','currency','minor_digits'),
                 constraints=(UniqueConstraint('code'), CheckConstraint('minor_digits BETWEEN 0 AND 3', name='markets_precision')))
-brands = table('brands', 'id name slug category color', 'rate_kobo_per_usd sort_order', 'is_active is_popular', 'created_at', required=('id',))
+brands = table('brands', 'id name slug category color logo_path', 'rate_kobo_per_usd sort_order', 'is_active is_popular', 'created_at', required=('id',))
 Index('brands_active_order', brands.c.is_active, brands.c.sort_order)
 
 card_rates = table('card_rates', 'id brand_id market_code', 'face_value payout_minor version', 'is_active', 'updated_at',
@@ -119,4 +119,4 @@ upload_parts = Table('upload_parts', metadata,
     UniqueConstraint('session_id','part'), CheckConstraint('part BETWEEN 0 AND 3 AND octet_length(data) <= 3145728',name='upload_part_limit'))
 TABLES['upload_parts']=upload_parts
 
-SCHEMA_VERSION = '004_staff_roles'
+SCHEMA_VERSION = '005_brand_logos'

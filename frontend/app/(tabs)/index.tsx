@@ -8,29 +8,13 @@ import Ionicons from "@react-native-vector-icons/ionicons";
 import { Image } from "expo-image";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { AppHeader } from "@/src/components/app-header";
-import { ScreenBackground, BrandMonogram, LoadingView } from "@/src/components/ui";
+import { ScreenBackground, LoadingView } from "@/src/components/ui";
+import { BrandIcon } from "@/src/components/brand-icon";
 import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
 import { formatNaira } from "@/src/lib/format";
 
-type Brand = { id: string; name: string; color: string; rate_kobo_per_usd: number; category: string };
-
-const BRAND_IMAGES: Record<string, any> = {
-  "apple/itunes": require("../../assets/home/brands/apple-itunes.png"),
-  "razer gold": require("../../assets/home/brands/razer-gold.png"),
-  steam: require("../../assets/home/brands/steam.png"),
-  playstation: require("../../assets/home/brands/playstation.png"),
-  xbox: require("../../assets/home/brands/xbox.png"),
-  amazon: require("../../assets/home/brands/amazon.png"),
-  "google play": require("../../assets/home/brands/google-play.png"),
-  nike: require("../../assets/home/brands/nike.png"),
-};
-
-function BrandIcon({ brand }: { brand: Brand }) {
-  const image = BRAND_IMAGES[brand.name.trim().toLowerCase()];
-  if (!image) return <BrandMonogram name={brand.name} color={brand.color} size={40} />;
-  return <Image source={image} style={{ width: 40, height: 40 }} contentFit="contain" />;
-}
+type Brand = { id: string; name: string; color: string; rate_kobo_per_usd: number; category: string; has_logo?: boolean; logo_version?: string };
 
 export default function Home() {
   const rates = useCardRates();
@@ -40,15 +24,16 @@ export default function Home() {
   const compact = width < 400;
   const router = useRouter();
   const { user, isGuest, balanceKobo, refresh } = useAuth();
+  const marketCode = user?.market_code || "NG";
   const [hideBalance, setHideBalance] = useState(false);
 
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
-    queryKey: ["brands", "popular"],
-    queryFn: () => api.get<{ brands: Brand[] }>("/brands?popular=true", false),
+    queryKey: ["brands", "popular", marketCode],
+    queryFn: () => api.get<{ brands: Brand[] }>(`/brands?popular=true&market_code=${encodeURIComponent(marketCode)}`, false),
   });
   const allBrands = useQuery({
-    queryKey: ["brands", "all"],
-    queryFn: () => api.get<{ brands: Brand[] }>("/brands", false),
+    queryKey: ["brands", "all", marketCode],
+    queryFn: () => api.get<{ brands: Brand[] }>(`/brands?market_code=${encodeURIComponent(marketCode)}`, false),
     enabled: !isError && data?.brands.length === 0,
   });
 
@@ -158,7 +143,7 @@ export default function Home() {
                   style={[styles.brandRow, i < list.length - 1 && styles.brandDivider]}
                   testID={`home-brand-${b.id}`}
                 >
-                  <BrandIcon brand={b} />
+                  <BrandIcon brand={b} size={40} />
                   {compact ? (
                     <View style={styles.brandContent}>
                       <Text style={styles.brandName} numberOfLines={2}>{b.name}</Text>

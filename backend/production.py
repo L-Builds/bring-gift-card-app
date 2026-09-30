@@ -81,7 +81,7 @@ class Production:
                                                  session=session, for_update=lock_rows)
         brand = await self.db.brands.find_one({"id": brand_id, "is_active": True},
                                                session=session, for_update=lock_rows)
-        if not market or not brand:
+        if not market or not brand or not brand.get("submission_types", ["physical", "ecode"]):
             raise HTTPException(400, "Card or market is not available")
         if market["currency"] != user.get("currency", "NGN"):
             raise HTTPException(409, "Market currency does not match this wallet")
@@ -149,7 +149,10 @@ class Production:
             market = await db.markets.find_one({"code": market_code, "is_active": True}, {"_id": 0})
             if not market:
                 return {"rates": [], "market": None}
-            brands = await db.brands.distinct("id", {"is_active": True})
+            available_brands = await db.brands.find({"is_active": True},
+                {"id": 1, "submission_types": 1}).to_list(5000)
+            brands = [brand["id"] for brand in available_brands
+                      if brand.get("submission_types", ["physical", "ecode"])]
             q["brand_id"] = brand_id if brand_id in brands else {"$in": brands} if not brand_id else ""
             return {"rates": await db.card_rates.find(q, {"_id": 0}).sort("face_value", 1).to_list(5000), "market": market}
 

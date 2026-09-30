@@ -13,6 +13,7 @@ import { ScreenBackground, PrimaryButton, LoadingView, QueryErrorView } from "@/
 import { useToast } from "@/src/components/toast";
 import { useAuth } from "@/src/context/auth";
 import { api, uploadImage, ApiError } from "@/src/api/client";
+import { BrandIcon } from "@/src/components/brand-icon";
 import { formatNaira } from "@/src/lib/format";
 import { normalizeTradeIntent } from "@/src/lib/trade-intent";
 
@@ -26,6 +27,8 @@ type Brand = {
   subcategories: string[];
   countries: string[];
   submission_types?: SubmissionType[];
+  has_logo?: boolean;
+  logo_version?: string;
 };
 
 export default function Trade() {
@@ -34,7 +37,8 @@ export default function Trade() {
   const router = useRouter();
   const toast = useToast();
   const qc = useQueryClient();
-  const { isGuest } = useAuth();
+  const { isGuest, user } = useAuth();
+  const marketCode = user?.market_code || "NG";
   const cardRates = useCardRates();
   const { brand_id, card_value_usd, quantity } = useLocalSearchParams<{ brand_id?: string; card_value_usd?: string; quantity?: string }>();
   const lastAppliedBrandId = useRef<string | null>(null);
@@ -54,8 +58,8 @@ export default function Trade() {
   const [reviewOpen, setReviewOpen] = useState(false);
 
   const { data, isLoading: brandsLoading, isError: brandsError, isRefetching: brandsRefetching, refetch: refetchBrands } = useQuery({
-    queryKey: ["brands", "all"],
-    queryFn: () => api.get<{ brands: Brand[] }>("/brands"),
+    queryKey: ["brands", "all", marketCode],
+    queryFn: () => api.get<{ brands: Brand[] }>(`/brands?market_code=${encodeURIComponent(marketCode)}`),
     enabled: !isGuest,
   });
 
@@ -417,6 +421,8 @@ export default function Trade() {
                 <Text style={styles.noOptions}>No options available</Text>
               ) : options.map((opt) => (
                 <Pressable key={opt} style={styles.optionRow} onPress={() => onSelect(opt)} testID={`option-${opt}`}>
+                  {picker === "brand" && data?.brands.find((b) => b.name === opt) &&
+                    <BrandIcon brand={data.brands.find((b) => b.name === opt)!} size={32} />}
                   <Text style={styles.optionText}>{opt}</Text>
                   <Ionicons name="chevron-forward" size={16} color={colors.muted} />
                 </Pressable>

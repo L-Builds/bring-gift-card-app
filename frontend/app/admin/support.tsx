@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, Pressable, FlatList, ScrollView, TextInput } from "react-native";
+import { View, Text, Pressable, FlatList, ScrollView, TextInput, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
@@ -22,6 +22,8 @@ export default function AdminSupport() {
   const styles = useStyles();
   const { colors } = useTheme();
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const desktop = width >= 1100;
   const [filter, setFilter] = useState("OPEN");
   const [q, setQ] = useState("");
 
@@ -65,10 +67,24 @@ export default function AdminSupport() {
           refreshing={isRefetching}
           onRefresh={refetch}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.xxxl, gap: spacing.md, paddingTop: spacing.xs }}
+          contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.xxxl, gap: desktop ? 0 : spacing.md, paddingTop: spacing.xs }}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={<EmptyState icon="chatbubbles-outline" title="Inbox clear" subtitle="No tickets in this status." />}
+          ListHeaderComponent={desktop && data.tickets.length > 0 ? <View style={styles.tableHead}>
+            <Text style={[styles.tableHeading, { flex: 1.4 }]}>Subject</Text>
+            <Text style={[styles.tableHeading, { flex: 1.8 }]}>Customer and message</Text>
+            <Text style={[styles.tableHeading, { flex: 1.1 }]}>Reference</Text>
+            <Text style={[styles.tableHeading, { flex: 1.1 }]}>Updated</Text>
+            <Text style={[styles.tableHeading, { flex: 0.9 }]}>Status</Text>
+          </View> : null}
           renderItem={({ item }) => (
+            desktop ? <Pressable style={[styles.tableRow, item.unread_for_admin > 0 && styles.cardUnread]} onPress={() => router.push(`/admin/support/${item.id}`)} testID={`admin-ticket-${item.id}`} accessibilityRole="button" accessibilityLabel={`Open support ticket ${item.ref}`}>
+              <View style={{ flex: 1.4 }}><Text style={styles.tablePrimary} numberOfLines={1}>{item.subject}</Text>{item.unread_for_admin > 0 && <Text style={styles.tableUnread}>{item.unread_for_admin} unread</Text>}</View>
+              <View style={{ flex: 1.8 }}><Text style={styles.tablePrimary} numberOfLines={1}>{item.customer_name}</Text><Text style={styles.tableSecondary} numberOfLines={1}>{item.last_message_preview}</Text></View>
+              <View style={{ flex: 1.1 }}><Text style={styles.tablePrimary} numberOfLines={1}>{item.ref}</Text><Text style={styles.tableSecondary} numberOfLines={1}>{item.category_label}</Text></View>
+              <Text style={[styles.tablePrimary, { flex: 1.1 }]} numberOfLines={1}>{formatDateTime(item.last_message_at)}</Text>
+              <View style={{ flex: 0.9, alignItems: "flex-start" }}><StatusBadge status={ticketStatusLabel(item.status)} /></View>
+            </Pressable> :
             <Pressable style={[styles.card, item.unread_for_admin > 0 && styles.cardUnread]} onPress={() => router.push(`/admin/support/${item.id}`)} testID={`admin-ticket-${item.id}`}>
               <View style={styles.icon}><Ionicons name="chatbubble-ellipses" size={20} color={colors.brandPrimary} /></View>
               <View style={{ flex: 1 }}>
@@ -105,4 +121,10 @@ const useStyles = makeStyles((colors) => ({
   unreadText: { color: colors.onError, fontSize: 10, fontWeight: "800" },
   preview: { color: colors.onSurfaceSecondary, fontSize: 13, marginTop: 1 },
   meta: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  tableHead: { flexDirection: "row", gap: spacing.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md, backgroundColor: colors.surfaceSecondary, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
+  tableHeading: { color: colors.onSurfaceSecondary, fontSize: 12, fontWeight: "800" },
+  tableRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 70, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
+  tablePrimary: { color: colors.onSurface, fontSize: 13, fontWeight: "700" },
+  tableSecondary: { color: colors.muted, fontSize: 11, marginTop: 3 },
+  tableUnread: { color: colors.brandPrimary, fontSize: 11, fontWeight: "800", marginTop: 3 },
 }));

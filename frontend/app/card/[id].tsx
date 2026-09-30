@@ -4,10 +4,10 @@ import { View, Text, ScrollView, Pressable } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
-import { Image } from "expo-image";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { StackHeader } from "@/src/components/stack-header";
-import { ScreenBackground, BrandMonogram, PrimaryButton, LoadingView } from "@/src/components/ui";
+import { ScreenBackground, PrimaryButton, LoadingView } from "@/src/components/ui";
+import { BrandIcon } from "@/src/components/brand-icon";
 import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/auth";
 import { formatMoney } from "@/src/lib/format";
@@ -22,29 +22,9 @@ type Brand = {
   submission_types?: string[];
   countries: string[];
   subcategories: string[];
+  has_logo?: boolean;
+  logo_version?: string;
 };
-
-const BRAND_IMAGES: Record<string, any> = {
-  "apple/itunes": require("../../assets/home/brands/apple-itunes.png"),
-  "razer gold": require("../../assets/home/brands/razer-gold.png"),
-  steam: require("../../assets/home/brands/steam.png"),
-  playstation: require("../../assets/home/brands/playstation.png"),
-  xbox: require("../../assets/home/brands/xbox.png"),
-  amazon: require("../../assets/home/brands/amazon.png"),
-  "google play": require("../../assets/home/brands/google-play.png"),
-  nike: require("../../assets/home/brands/nike.png"),
-  paysafecard: require("../../assets/rates/brands/paysafecard.png"),
-  sephora: require("../../assets/rates/brands/sephora.png"),
-  one4all: require("../../assets/rates/brands/one4all.png"),
-  ebay: require("../../assets/rates/brands/ebay.png"),
-  footlocker: require("../../assets/rates/brands/footlocker.png"),
-};
-
-function BrandIcon({ brand }: { brand: Brand }) {
-  const image = BRAND_IMAGES[brand.name.trim().toLowerCase()];
-  if (!image) return <BrandMonogram name={brand.name} color={brand.color} size={76} />;
-  return <Image source={image} style={{ width: 76, height: 76, borderRadius: 38 }} contentFit="contain" />;
-}
 
 export default function CardDetail() {
   const rates = useCardRates();
@@ -52,7 +32,8 @@ export default function CardDetail() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { isGuest } = useAuth();
+  const { isGuest, user } = useAuth();
+  const marketCode = user?.market_code || "NG";
   const { id } = useLocalSearchParams<{ id: string }>();
   const [selectedRateId, setSelectedRateId] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
@@ -69,8 +50,8 @@ export default function CardDetail() {
   };
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["brand", id],
-    queryFn: () => api.get<Brand>(`/brands/${id}`),
+    queryKey: ["brand", id, marketCode],
+    queryFn: () => api.get<Brand>(`/brands/${id}?market_code=${encodeURIComponent(marketCode)}`),
   });
 
   if (isLoading || !data) {
@@ -96,7 +77,7 @@ export default function CardDetail() {
       <StackHeader title="Card Details" />
       <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: insets.bottom + 100, gap: spacing.lg }}>
         <View style={styles.hero}>
-          <BrandIcon brand={data} />
+          <BrandIcon brand={data} size={76} />
           <Text style={styles.name}>{data.name}</Text>
           <View style={styles.catPill}><Text style={styles.catText}>{data.category}</Text></View>
         </View>

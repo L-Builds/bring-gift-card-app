@@ -6,7 +6,7 @@ import ssl
 from email.message import EmailMessage
 from urllib.parse import quote
 import boto3
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from fastapi import HTTPException
 
 
@@ -24,14 +24,32 @@ def clean_image(data):
         raise HTTPException(422, "Upload a valid JPEG, PNG or WebP image")
 
 
+def clean_brand_logo(data):
+    """Normalize a validated upload to a small square PNG for public display."""
+    try:
+        Image.MAX_IMAGE_PIXELS = 25000000
+        with Image.open(io.BytesIO(data)) as im:
+            if im.format not in {"JPEG", "PNG", "WEBP"} or im.width * im.height > 25000000:
+                raise ValueError("Unsupported image")
+            im.load()
+            contained = ImageOps.contain(ImageOps.exif_transpose(im).convert("RGBA"), (512, 512))
+            canvas = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+            canvas.alpha_composite(contained, ((512 - contained.width) // 2, (512 - contained.height) // 2))
+            result = io.BytesIO()
+            canvas.save(result, format="PNG", optimize=True)
+            return result.getvalue()
+    except (UnidentifiedImageError, ValueError, OSError, Image.DecompressionBombError):
+        raise HTTPException(422, "Upload a valid JPEG, PNG or WebP image")
+
+
 def s3_client():
     return boto3.client("s3", endpoint_url=os.environ.get("S3_ENDPOINT_URL") or None,
         region_name=os.environ.get("AWS_REGION", "us-east-1"))
 
 
-def put_private(path, data):
+def put_private(path, data, content_type="image/jpeg"):
     s3_client().put_object(Bucket=os.environ["S3_BUCKET"], Key=path, Body=data,
-        ContentType="image/jpeg", ServerSideEncryption="AES256")
+        ContentType=content_type, ServerSideEncryption="AES256")
 
 
 def get_private(path):

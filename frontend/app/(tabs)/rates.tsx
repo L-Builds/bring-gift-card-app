@@ -5,38 +5,19 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import Ionicons from "@react-native-vector-icons/ionicons";
-import { Image } from "expo-image";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
-import { BrandMonogram, LoadingView, EmptyState, QueryErrorView } from "@/src/components/ui";
+import { LoadingView, EmptyState, QueryErrorView } from "@/src/components/ui";
+import { BrandIcon } from "@/src/components/brand-icon";
 import { api } from "@/src/api/client";
+import { useAuth } from "@/src/context/auth";
 import { formatNaira } from "@/src/lib/format";
 
-type Brand = { id: string; name: string; color: string; rate_kobo_per_usd: number; category: string };
-
-const BRAND_IMAGES: Record<string, any> = {
-  "apple/itunes": require("../../assets/home/brands/apple-itunes.png"),
-  "razer gold": require("../../assets/home/brands/razer-gold.png"),
-  steam: require("../../assets/home/brands/steam.png"),
-  playstation: require("../../assets/home/brands/playstation.png"),
-  xbox: require("../../assets/home/brands/xbox.png"),
-  amazon: require("../../assets/home/brands/amazon.png"),
-  "google play": require("../../assets/home/brands/google-play.png"),
-  nike: require("../../assets/home/brands/nike.png"),
-  paysafecard: require("../../assets/rates/brands/paysafecard.png"),
-  sephora: require("../../assets/rates/brands/sephora.png"),
-  one4all: require("../../assets/rates/brands/one4all.png"),
-  ebay: require("../../assets/rates/brands/ebay.png"),
-  footlocker: require("../../assets/rates/brands/footlocker.png"),
-};
-
-function BrandIcon({ brand }: { brand: Brand }) {
-  const image = BRAND_IMAGES[brand.name.trim().toLowerCase()];
-  if (!image) return <BrandMonogram name={brand.name} color={brand.color} size={48} />;
-  return <Image source={image} style={{ width: 48, height: 48, borderRadius: 24 }} contentFit="contain" />;
-}
+type Brand = { id: string; name: string; color: string; rate_kobo_per_usd: number; category: string; has_logo?: boolean; logo_version?: string };
 
 export default function Rates() {
   const rates = useCardRates();
+  const { user } = useAuth();
+  const marketCode = user?.market_code || "NG";
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -48,8 +29,8 @@ export default function Rates() {
   const [filterOpen, setFilterOpen] = useState(false);
 
   const { data: categoryData } = useQuery({
-    queryKey: ["brand-categories"],
-    queryFn: () => api.get<{ categories: string[] }>("/categories", false),
+    queryKey: ["brand-categories", marketCode],
+    queryFn: () => api.get<{ categories: string[] }>(`/categories?market_code=${encodeURIComponent(marketCode)}`, false),
   });
 
   const chips = useMemo(() => {
@@ -65,9 +46,10 @@ export default function Rates() {
   if (popular) params.set("popular", "true");
   if (category) params.set("category", category);
   if (q.trim()) params.set("q", q.trim());
+  params.set("market_code", marketCode);
 
   const { data, isLoading, isError, isRefetching, refetch } = useQuery({
-    queryKey: ["rates", chip, q],
+    queryKey: ["rates", chip, q, marketCode],
     queryFn: () => api.get<{ brands: Brand[] }>(`/brands?${params.toString()}`, false),
   });
 
@@ -155,7 +137,7 @@ export default function Rates() {
               style={[styles.row, index < ((data?.brands.length ?? 0) - 1) && styles.rowDivider]}
               testID={`rates-brand-${item.id}`}
             >
-              <BrandIcon brand={item} />
+              <BrandIcon brand={item} size={48} />
               {compact ? (
                 <View style={styles.rowContent}>
                   <Text style={styles.rowName} numberOfLines={2}>{item.name}</Text>

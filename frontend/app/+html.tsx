@@ -57,6 +57,19 @@ export default function Root({ children }: PropsWithChildren) {
               textarea {
                 -webkit-tap-highlight-color: transparent;
               }
+              #root div:has(> :is(input, textarea):focus-visible:is(
+                [data-testid^="signup-"], [data-testid^="forgot-"],
+                [data-testid^="trade-"], [data-testid^="rates-search"],
+                [data-testid^="txn-filter-"], [data-testid^="ticket-"],
+                [data-testid^="withdraw-"], [data-testid^="referral-"],
+                [data-testid^="pin-reset-"])) {
+                outline: 2px solid #1F5AF6;
+                outline-offset: 2px;
+              }
+              #root :is(button, a, [role="button"], [role="tab"]):focus-visible {
+                outline: 2px solid #1F5AF6;
+                outline-offset: 2px;
+              }
               [role="tablist"] [role="tab"] * { overflow: visible !important; }
               [role="heading"], [role="heading"] * { overflow: visible !important; }
             `,

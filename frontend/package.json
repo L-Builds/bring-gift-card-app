@@ -10,7 +10,7 @@
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
     "build:web": "node scripts/build-web.cjs",
-    "check:web": "node --test scripts/check-web-config.test.cjs"
+    "check:web": "node --test scripts/check-web-config.test.cjs scripts/check-pwa.test.cjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "57.0.16",
