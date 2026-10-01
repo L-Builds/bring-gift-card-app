@@ -12,7 +12,9 @@ export type BrandArtwork = {
 };
 
 const bundledArt: Record<string, any> = {
+  "apple / itunes": require("../../assets/home/brands/apple-itunes.png"),
   "apple/itunes": require("../../assets/home/brands/apple-itunes.png"),
+  apple: require("../../assets/home/brands/apple-itunes.png"),
   "apple itunes": require("../../assets/home/brands/apple-itunes.png"),
   "razer gold": require("../../assets/home/brands/razer-gold.png"),
   steam: require("../../assets/home/brands/steam.png"),
@@ -26,6 +28,7 @@ const bundledArt: Record<string, any> = {
   one4all: require("../../assets/rates/brands/one4all.png"),
   ebay: require("../../assets/rates/brands/ebay.png"),
   footlocker: require("../../assets/rates/brands/footlocker.png"),
+  "foot locker": require("../../assets/rates/brands/footlocker.png"),
 };
 
 export function BrandIcon({ brand, size, borderRadius = size / 2 }: {

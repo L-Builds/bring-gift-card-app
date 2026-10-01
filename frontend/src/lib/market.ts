@@ -3,7 +3,22 @@ import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/auth";
 import { formatMoney } from "./format";
 export type Market = { code: string; name: string; currency: string; minor_digits: number; is_active: boolean };
-export type CardRate = { id: string; brand_id: string; market_code: string; face_value: number; payout_minor: number; version: number; is_active: boolean };
+export type CardRate = {
+  id: string;
+  brand_id: string;
+  market_code: string;
+  card_country: string;
+  face_value: number;
+  payout_minor: number;
+  rate_minor_per_usd?: number | null;
+  submission_type: "any" | "physical" | "ecode";
+  range_min?: number | null;
+  range_max?: number | null;
+  version: number;
+  is_active: boolean;
+  is_headline: boolean;
+  archived_at?: string | null;
+};
 export function useCardRates() {
   const { user } = useAuth();
   const market = user?.market_code || "NG";

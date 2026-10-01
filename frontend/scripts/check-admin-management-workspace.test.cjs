@@ -24,18 +24,25 @@ test("catalog uses a desktop management table and editable card workspace", () =
   assert.match(source, /uploadBrandLogo/);
 });
 
-test("rates present the existing brand to market to value to payout workflow without changing rate endpoints", () => {
+test("rates use a compact card and country workspace with editable rule rows", () => {
   const source = read("app/admin/catalog.tsx");
   assert.match(source, /testID="admin-rates-workspace"/);
-  assert.match(source, />1\. Brand</);
-  assert.match(source, />2\. Market</);
-  assert.match(source, />3\. Card type \/ value</);
-  assert.match(source, />4\. Payout</);
-  assert.match(source, /Rate setup · Brand → Market → Card type\/value → Payout/);
-  assert.match(source, /\/admin\/card-rates/);
-  assert.match(source, /face_value, payout_minor, is_active: true/);
-  assert.match(source, /Rate is saved|rate model is preserved|existing rate model is preserved/i);
+  assert.match(source, /testID="rate-card-selector"/);
+  assert.match(source, /testID="rate-market-selector"/);
+  assert.match(source, />Value</);
+  assert.match(source, />Range</);
+  assert.match(source, />Type</);
+  assert.match(source, />Rate \/ \$1</);
+  assert.match(source, />Status</);
+  assert.match(source, /testID="rate-add"/);
+  assert.match(source, /Total trade range from \(optional\)/);
+  assert.match(source, /Total trade range to \(optional\)/);
+  assert.match(source, /Rate per \$1/);
+  assert.match(source, /rate_minor_per_usd/);
+  assert.match(source, /api\.patch\(`\/admin\/card-rates\/\$\{encodeURIComponent\(rateDraft\.id\)\}`/);
+  assert.match(source, /\/safe`/);
   assert.match(source, /testID="rates-desktop-table"/);
+  assert.doesNotMatch(source, /Save Denomination Rate/);
 });
 
 test("markets use a desktop table plus add/edit panel while preserving the existing market endpoint", () => {

@@ -812,8 +812,13 @@ async def attach_brand_logos(trades: list[dict]) -> None:
         trade.update(brand_logo_metadata(by_id.get(trade.get("brand_id"))))
 
 
-async def tradable_brand_ids(market_code: str = "") -> set[str]:
-    """A listed card needs an active payout market and a usable denomination."""
+async def rate_view_brand_ids(market_code: str = "") -> set[str]:
+    """Cards that have at least one active published rate for the payout market.
+
+    This is intentionally broader than tradable_brand_ids: typed/ranged rules may
+    be published on the public Rates page before the later Trade Integration phase
+    teaches the trade flow how to select those exact rules.
+    """
     market_filter: dict = {"code": market_code, "is_active": True} if market_code else {"is_active": True}
     markets = await db.markets.distinct("code", market_filter)
     if not markets:
@@ -825,9 +830,14 @@ async def tradable_brand_ids(market_code: str = "") -> set[str]:
     return set(ids)
 
 
+async def tradable_brand_ids(market_code: str = "") -> set[str]:
+    """A listed card needs an active payout market and at least one usable rate rule."""
+    return await rate_view_brand_ids(market_code)
+
+
 @api.get("/brands")
-async def list_brands(popular: bool = False, category: str = "", q: str = "", market_code: str = ""):
-    ids = await tradable_brand_ids(market_code)
+async def list_brands(popular: bool = False, category: str = "", q: str = "", market_code: str = "", purpose: Literal["trade", "rates"] = "trade"):
+    ids = await (rate_view_brand_ids(market_code) if purpose == "rates" else tradable_brand_ids(market_code))
     if not ids:
         return {"brands": []}
     query: dict = {"is_active": True, "id": {"$in": sorted(ids)}}
@@ -975,7 +985,13 @@ async def create_trade(x: TradeIn, user: dict = Depends(current_user)):
         raise HTTPException(400, "Selected card type / sub-category is not available")
     countries = brand.get("countries") or []
     if countries and x.country not in countries:
-        raise HTTPException(400, "Selected country / region is not available for this card")
+        market_code = user.get("market_code", "NG")
+        published_country = await db.card_rates.find_one({
+            "brand_id": brand["id"], "market_code": market_code,
+            "card_country": x.country.strip().upper(), "is_active": True,
+        }, {"id": 1})
+        if not published_country:
+            raise HTTPException(400, "Selected country / region is not available for this card")
     if x.submission_type == "physical" and not x.image_paths:
         raise HTTPException(400, "Please upload at least one clear image of the card")
     if x.submission_type == "ecode" and not x.ecode.strip():
@@ -984,12 +1000,15 @@ async def create_trade(x: TradeIn, user: dict = Depends(current_user)):
     async def submit(session):
         # Hold the rate row until the trade is recorded. A concurrent admin rate
         # publication must either precede this version check or follow the trade.
-        quote = await production.quote(x.brand_id, x.card_value_usd, x.quantity, user,
-                                       session=session, lock_rows=True)
+        quote = await production.quote(
+            x.brand_id, x.card_value_usd, x.quantity, user,
+            card_country=x.country, submission_type=x.submission_type,
+            session=session, lock_rows=True,
+        )
         if quote["rate_version"] != x.rate_version:
             raise HTTPException(409, "Rate changed. Refresh the quote and review before submitting.")
         payout = quote["payout_minor"]
-        rate = quote["unit_payout_minor"] // x.card_value_usd
+        rate = quote["rate_minor_per_usd"]
         ts = now()
         trade = {
             "id": new_id(), "order_id": order_ref("BGC"), "user_id": user["id"],
@@ -1764,7 +1783,13 @@ async def admin_update_brand(brand_id: str, x: BrandIn, admin: dict = Depends(re
     old = await db.brands.find_one({"id": brand_id})
     if not old:
         raise HTTPException(404, "Brand not found")
-    await db.brands.update_one({"id": brand_id}, {"$set": x.model_dump()})
+    changes: dict = {"$set": x.model_dump()}
+    # Explicitly re-activating an archived catalog card restores it to normal
+    # management state. It still remains invisible to customers until a usable
+    # active rate exists.
+    if x.is_active and old.get("archived_at"):
+        changes["$unset"] = {"archived_at": ""}
+    await db.brands.update_one({"id": brand_id}, changes)
     if old.get("rate_kobo_per_usd") != x.rate_kobo_per_usd:
         await db.rate_changes.insert_one({
             "id": new_id(), "brand_id": brand_id, "brand_name": x.name, "old": old.get("rate_kobo_per_usd"),
@@ -1772,6 +1797,38 @@ async def admin_update_brand(brand_id: str, x: BrandIn, admin: dict = Depends(re
         })
     saved = await db.brands.find_one({"id": brand_id}, {"_id": 0})
     return brand_response(saved, tradable=saved["is_active"] and brand_id in await tradable_brand_ids())
+
+
+@api.delete("/admin/brands/{brand_id}")
+async def admin_delete_or_archive_brand(brand_id: str, admin: dict = Depends(require_admin)):
+    brand = await db.brands.find_one({"id": brand_id})
+    if not brand:
+        raise HTTPException(404, "Brand not found")
+    historical_trades = await db.trades.count_documents({"brand_id": brand_id})
+    if historical_trades:
+        async def archive(session):
+            archived_at = now()
+            await db.brands.update_one({"id": brand_id}, {"$set": {
+                "is_active": False, "is_popular": False, "archived_at": archived_at,
+            }}, session=session)
+            await db.card_rates.update_many({"brand_id": brand_id, "is_active": True}, {"$set": {
+                "is_active": False, "archived_at": archived_at,
+            }}, session=session)
+            await db.audit.insert_one({"actor": admin["id"], "action": "brand.archived",
+                "target": brand_id, "at": archived_at}, session=session)
+        await db.transaction(archive)
+        saved = await db.brands.find_one({"id": brand_id}, {"_id": 0})
+        return {"ok": True, "deleted": False, "archived": True,
+                "brand": brand_response(saved, tradable=False)}
+
+    async def remove(session):
+        await db.card_rates.delete_many({"brand_id": brand_id}, session=session)
+        await db.rate_changes.delete_many({"brand_id": brand_id}, session=session)
+        await db.brands.delete_many({"id": brand_id}, session=session)
+        await db.audit.insert_one({"actor": admin["id"], "action": "brand.deleted",
+            "target": brand_id, "at": now()}, session=session)
+    await db.transaction(remove)
+    return {"ok": True, "deleted": True, "archived": False}
 
 
 @api.delete("/admin/brands/{brand_id}/logo")

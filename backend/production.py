@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Literal
 from cryptography.fernet import Fernet
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from persistence import ReturnDocument
 from payout_providers import ADAPTERS, ProviderError
 from legal_documents import default_legal
@@ -37,15 +37,45 @@ class MarketIn(BaseModel):
 class RateIn(BaseModel):
     brand_id: str
     market_code: str
+    card_country: str = Field(default="", max_length=24)
     face_value: int = Field(gt=0, le=1000000)
-    payout_minor: int = Field(gt=0, le=9000000000000)
+    submission_type: Literal["any", "physical", "ecode"] = "any"
+    range_min: int | None = Field(default=None, ge=0, le=1000000)
+    range_max: int | None = Field(default=None, ge=0, le=1000000)
+    rate_minor_per_usd: int | None = Field(default=None, gt=0, le=9000000000000)
+    payout_minor: int | None = Field(default=None, gt=0, le=9000000000000)
     is_active: bool = True
+    is_headline: bool = False
+
+    @model_validator(mode="after")
+    def validate_rule(self):
+        self.card_country = self.card_country.strip().upper()
+        if (self.range_min is None) != (self.range_max is None):
+            raise ValueError("Range minimum and maximum must be supplied together")
+        if self.range_min is not None and self.range_max is not None and self.range_min > self.range_max:
+            raise ValueError("Range minimum cannot exceed range maximum")
+        if self.is_headline and not self.is_active:
+            raise ValueError("The All Cards display rate must be active")
+        if self.rate_minor_per_usd is None and self.payout_minor is None:
+            raise ValueError("Provide a rate per $1 or a total payout")
+        if self.rate_minor_per_usd is not None:
+            computed = self.rate_minor_per_usd * self.face_value
+            if computed > 9000000000000:
+                raise ValueError("Computed payout is too large")
+            if self.payout_minor is not None and self.payout_minor != computed:
+                raise ValueError("Total payout must equal card value multiplied by the rate per $1")
+            self.payout_minor = computed
+        elif self.payout_minor is not None and self.payout_minor % self.face_value == 0:
+            self.rate_minor_per_usd = self.payout_minor // self.face_value
+        return self
 
 
 class QuoteIn(BaseModel):
     brand_id: str
     face_value: int = Field(gt=0)
     quantity: int = Field(default=1, ge=1, le=100)
+    card_country: str = Field(default="", max_length=24)
+    submission_type: Literal["any", "physical", "ecode"] = "any"
 
 
 class ProviderIn(BaseModel):
@@ -69,6 +99,41 @@ class LegalIn(BaseModel):
     content: str = Field(min_length=40, max_length=100000)
 
 
+def select_rate_rule(rows: list[dict], card_country: str, submission_type: str, total_face_value: int) -> dict | None:
+    """Pick the most specific active rule for a trade without inventing a rate.
+
+    Range conditions apply to the trade's total face value (face value × quantity).
+    Exact card-country/type rules outrank general/legacy fallbacks; a matching ranged
+    rule outranks an otherwise-equal fixed rule. Equally specific overlapping rules
+    are rejected as ambiguous by the caller.
+    """
+    wanted_country = (card_country or "").strip().upper()
+    wanted_type = submission_type or "any"
+    matches: list[tuple[int, dict]] = []
+    for row in rows:
+        row_country = (row.get("card_country") or "").strip().upper()
+        row_type = row.get("submission_type") or "any"
+        if row_country and row_country != wanted_country:
+            continue
+        if row_type != "any" and row_type != wanted_type:
+            continue
+        range_min, range_max = row.get("range_min"), row.get("range_max")
+        ranged = range_min is not None and range_max is not None
+        if ranged and not (int(range_min) <= total_face_value <= int(range_max)):
+            continue
+        score = (4 if row_country and row_country == wanted_country else 0) + \
+                (2 if row_type != "any" and row_type == wanted_type else 0) + \
+                (1 if ranged else 0)
+        matches.append((score, row))
+    if not matches:
+        return None
+    best = max(score for score, _ in matches)
+    winners = [row for score, row in matches if score == best]
+    if len(winners) > 1:
+        raise ValueError("Multiple equally specific rate rules match this trade")
+    return winners[0]
+
+
 class Production:
     def __init__(self, s):
         self.s, self.db = s, s.db
@@ -76,7 +141,8 @@ class Production:
     async def audit(self, actor, action, target):
         await self.db.audit.insert_one({"actor": actor, "action": action, "target": target, "at": self.s.now()})
 
-    async def quote(self, brand_id, face_value, quantity, user, session=None, lock_rows=False):
+    async def quote(self, brand_id, face_value, quantity, user, card_country="", submission_type="any",
+                    session=None, lock_rows=False):
         market = await self.db.markets.find_one({"code": user.get("market_code", "NG"), "is_active": True},
                                                  session=session, for_update=lock_rows)
         brand = await self.db.brands.find_one({"id": brand_id, "is_active": True},
@@ -85,13 +151,44 @@ class Production:
             raise HTTPException(400, "Card or market is not available")
         if market["currency"] != user.get("currency", "NGN"):
             raise HTTPException(409, "Market currency does not match this wallet")
-        rate = await self.db.card_rates.find_one({"brand_id": brand_id, "market_code": market["code"],
-            "face_value": face_value, "is_active": True}, {"_id": 0}, session=session, for_update=lock_rows)
+        if submission_type != "any" and submission_type not in brand.get("submission_types", ["physical", "ecode"]):
+            raise HTTPException(400, "That submission type is not available for this card")
+
+        rows = await self.db.card_rates.find({
+            "brand_id": brand_id,
+            "market_code": market["code"],
+            "face_value": face_value,
+            "is_active": True,
+        }, {"_id": 0}, session=session).to_list(500)
+        total_face_value = face_value * quantity
+        try:
+            rate = select_rate_rule(rows, card_country, submission_type, total_face_value)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
         if not rate:
-            raise HTTPException(409, "No active rate for this card value and payout market")
-        return {"rate_id": rate["id"], "rate_version": rate["version"], "currency": market["currency"],
+            raise HTTPException(409, "No active rate matches this card country, type, value and trade amount")
+
+        if lock_rows:
+            locked = await self.db.card_rates.find_one({"id": rate["id"], "is_active": True},
+                                                       {"_id": 0}, session=session, for_update=True)
+            if not locked:
+                raise HTTPException(409, "Rate changed. Refresh the quote and try again.")
+            rate = locked
+
+        per_usd = rate.get("rate_minor_per_usd")
+        if per_usd is None and rate["face_value"] and rate["payout_minor"] % rate["face_value"] == 0:
+            per_usd = rate["payout_minor"] // rate["face_value"]
+        if per_usd is None:
+            raise HTTPException(409, "This legacy rate cannot be used for exact trade pricing")
+        unit_payout = per_usd * face_value
+        return {
+            "rate_id": rate["id"], "rate_version": rate["version"], "currency": market["currency"],
             "minor_digits": market["minor_digits"], "market_code": market["code"],
-            "unit_payout_minor": rate["payout_minor"], "payout_minor": rate["payout_minor"] * quantity}
+            "unit_payout_minor": unit_payout, "payout_minor": unit_payout * quantity,
+            "rate_minor_per_usd": per_usd, "card_country": rate.get("card_country", ""),
+            "submission_type": rate.get("submission_type", "any"),
+            "range_min": rate.get("range_min"), "range_max": rate.get("range_max"),
+        }
 
     async def provider(self, provider_id, enabled=False):
         p = await self.db.payout_providers.find_one({"id": provider_id})
@@ -154,41 +251,123 @@ class Production:
             brands = [brand["id"] for brand in available_brands
                       if brand.get("submission_types", ["physical", "ecode"])]
             q["brand_id"] = brand_id if brand_id in brands else {"$in": brands} if not brand_id else ""
-            return {"rates": await db.card_rates.find(q, {"_id": 0}).sort("face_value", 1).to_list(5000), "market": market}
+            rows = await db.card_rates.find(q, {"_id": 0}).sort([
+                ("card_country", 1), ("face_value", 1), ("submission_type", 1), ("range_min", 1), ("range_max", 1)
+            ]).to_list(5000)
+            return {"rates": rows, "market": market}
 
         @api.get("/admin/card-rates")
         async def admin_rates(brand_id: str, admin=Depends(s.require_admin)):
-            return {"rates": await db.card_rates.find({"brand_id": brand_id}, {"_id": 0}).to_list(5000)}
+            rows = await db.card_rates.find({"brand_id": brand_id}, {"_id": 0}).sort([
+                ("market_code", 1), ("card_country", 1), ("face_value", 1), ("submission_type", 1),
+                ("range_min", 1), ("range_max", 1)
+            ]).to_list(5000)
+            return {"rates": rows}
 
-        @api.post("/admin/card-rates")
-        async def save_rate(x: RateIn, admin=Depends(s.require_admin)):
+        def rate_key(x: RateIn) -> dict:
+            return {
+                "brand_id": x.brand_id, "market_code": x.market_code, "card_country": x.card_country, "face_value": x.face_value,
+                "submission_type": x.submission_type, "range_min": x.range_min, "range_max": x.range_max,
+            }
+
+        async def ensure_rate_refs(x: RateIn):
             if not await db.brands.find_one({"id": x.brand_id}) or not await db.markets.find_one({"code": x.market_code}):
                 raise HTTPException(400, "Select an existing card and market")
-            key = {"brand_id": x.brand_id, "market_code": x.market_code, "face_value": x.face_value}
+
+        async def write_rate(x: RateIn, admin: dict, rate_id: str = ""):
+            await ensure_rate_refs(x)
+            key = rate_key(x)
+            payload = x.model_dump()
             async def run(session):
-                row = await db.card_rates.find_one_and_update(key, {"$set": {**x.model_dump(), "updated_at": s.now()},
-                    "$setOnInsert": {"id": s.new_id()}, "$inc": {"version": 1}}, upsert=True,
-                    return_document=ReturnDocument.AFTER, session=session)
+                if x.is_headline:
+                    await db.card_rates.update_many(
+                        {"brand_id": x.brand_id, "market_code": x.market_code, "is_headline": True},
+                        {"$set": {"is_headline": False, "updated_at": s.now()}},
+                        session=session,
+                    )
+                if rate_id:
+                    current = await db.card_rates.find_one({"id": rate_id}, session=session, for_update=True)
+                    if not current:
+                        raise HTTPException(404, "Rate not found")
+                    duplicate = await db.card_rates.find_one({**key, "id": {"$ne": rate_id}}, session=session)
+                    if duplicate:
+                        raise HTTPException(409, "A rate rule already exists for this card, market, value, type and range")
+                    row = await db.card_rates.find_one_and_update({"id": rate_id}, {
+                        "$set": {**payload, "updated_at": s.now(), "archived_at": None},
+                        "$inc": {"version": 1},
+                    }, return_document=ReturnDocument.AFTER, session=session)
+                else:
+                    row = await db.card_rates.find_one_and_update(key, {
+                        "$set": {**payload, "updated_at": s.now(), "archived_at": None},
+                        "$setOnInsert": {"id": s.new_id()}, "$inc": {"version": 1},
+                    }, upsert=True, return_document=ReturnDocument.AFTER, session=session)
                 await db.audit.insert_one({"actor": admin["id"], "action": "rate.updated", "target": row["id"],
-                    "rate": x.model_dump(), "version": row["version"], "at": s.now()}, session=session)
+                    "rate": {k: v for k, v in row.items() if k != "_id"}, "version": row["version"], "at": s.now()}, session=session)
                 row.pop("_id", None)
                 return row
             return await s.money.transaction(run)
 
-        @api.delete("/admin/card-rates/{rate_id}")
-        async def delete_rate(rate_id: str, admin=Depends(s.require_admin)):
+        @api.post("/admin/card-rates")
+        async def save_rate(x: RateIn, admin=Depends(s.require_admin)):
+            return await write_rate(x, admin)
+
+        @api.patch("/admin/card-rates/{rate_id}")
+        async def edit_rate(rate_id: str, x: RateIn, admin=Depends(s.require_admin)):
+            return await write_rate(x, admin, rate_id)
+
+        async def disable_rate_row(rate_id: str, admin: dict):
             async def run(session):
-                row = await db.card_rates.find_one_and_update({"id": rate_id}, {"$set": {"is_active": False}, "$inc": {"version": 1}}, return_document=ReturnDocument.AFTER, session=session)
+                row = await db.card_rates.find_one_and_update({"id": rate_id}, {
+                    "$set": {"is_active": False, "is_headline": False, "updated_at": s.now()}, "$inc": {"version": 1}
+                }, return_document=ReturnDocument.AFTER, session=session)
                 if not row:
                     raise HTTPException(404, "Rate not found")
                 row.pop("_id", None)
-                await db.audit.insert_one({"actor": admin["id"], "action": "rate.disabled", "target": rate_id, "rate": row, "version": row["version"], "at": s.now()}, session=session)
-            await s.money.transaction(run)
+                await db.audit.insert_one({"actor": admin["id"], "action": "rate.disabled", "target": rate_id,
+                    "rate": row, "version": row["version"], "at": s.now()}, session=session)
+                return row
+            return await s.money.transaction(run)
+
+        @api.post("/admin/card-rates/{rate_id}/disable")
+        async def disable_rate(rate_id: str, admin=Depends(s.require_admin)):
+            row = await disable_rate_row(rate_id, admin)
+            return {"ok": True, "rate": row}
+
+        @api.delete("/admin/card-rates/{rate_id}")
+        async def delete_rate_legacy(rate_id: str, admin=Depends(s.require_admin)):
+            # Backward-compatible endpoint used by the current admin UI: DELETE still
+            # means disable. The explicit /safe endpoint below performs safe deletion.
+            await disable_rate_row(rate_id, admin)
             return {"ok": True}
+
+        @api.delete("/admin/card-rates/{rate_id}/safe")
+        async def safe_delete_rate(rate_id: str, admin=Depends(s.require_admin)):
+            async def run(session):
+                row = await db.card_rates.find_one({"id": rate_id}, session=session, for_update=True)
+                if not row:
+                    raise HTTPException(404, "Rate not found")
+                used = await db.trades.find_one({"rate_id": rate_id}, {"id": 1}, session=session)
+                clean = {k: v for k, v in row.items() if k != "_id"}
+                if used:
+                    archived = await db.card_rates.find_one_and_update({"id": rate_id}, {
+                        "$set": {"is_active": False, "is_headline": False, "archived_at": s.now(), "updated_at": s.now()},
+                        "$inc": {"version": 1},
+                    }, return_document=ReturnDocument.AFTER, session=session)
+                    archived.pop("_id", None)
+                    await db.audit.insert_one({"actor": admin["id"], "action": "rate.archived", "target": rate_id,
+                        "rate": archived, "version": archived["version"], "at": s.now()}, session=session)
+                    return {"ok": True, "deleted": False, "archived": True, "rate": archived}
+                result = await db.card_rates.delete_many({"id": rate_id}, session=session)
+                if result.deleted_count != 1:
+                    raise HTTPException(409, "Rate could not be deleted safely")
+                await db.audit.insert_one({"actor": admin["id"], "action": "rate.deleted", "target": rate_id,
+                    "rate": clean, "version": clean.get("version", 0), "at": s.now()}, session=session)
+                return {"ok": True, "deleted": True, "archived": False}
+            return await s.money.transaction(run)
 
         @api.get("/admin/denomination-history")
         async def denomination_history(admin=Depends(s.require_admin)):
-            rows = await db.audit.find({"action": {"$in": ["rate.updated", "rate.disabled"]}}, {"_id": 0}).sort("at", -1).to_list(300)
+            rows = await db.audit.find({"action": {"$in": ["rate.updated", "rate.disabled", "rate.archived", "rate.deleted"]}}, {"_id": 0}).sort("at", -1).to_list(300)
             names = {b["id"]: b["name"] for b in await db.brands.find({}, {"id": 1, "name": 1}).to_list(1000)}
             markets = {m["code"]: m for m in await db.markets.find({}, {"_id": 0}).to_list(250)}
             for row in rows:
@@ -199,7 +378,10 @@ class Production:
 
         @api.post("/quotes")
         async def quote(x: QuoteIn, user=Depends(s.current_user)):
-            return await self.quote(x.brand_id, x.face_value, x.quantity, user)
+            return await self.quote(
+                x.brand_id, x.face_value, x.quantity, user,
+                card_country=x.card_country, submission_type=x.submission_type,
+            )
 
         @api.get("/admin/payout-providers")
         async def providers(admin=Depends(s.require_admin)):

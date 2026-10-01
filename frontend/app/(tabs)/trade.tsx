@@ -31,6 +31,17 @@ type Brand = {
   logo_version?: string;
 };
 
+type QuoteData = {
+  payout_minor: number;
+  unit_payout_minor: number;
+  rate_version: number;
+  rate_minor_per_usd: number;
+  card_country: string;
+  submission_type: "any" | SubmissionType;
+  range_min?: number | null;
+  range_max?: number | null;
+};
+
 export default function Trade() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -96,9 +107,31 @@ export default function Trade() {
     setType((current) => selectedTypes.includes(current) ? current : selectedTypes[0] ?? "physical");
   }, [brand_id, data]);
 
-  const quote = useQuery({queryKey:["quote",brand?.id,value,qty],queryFn:()=>api.post<{payout_minor:number;unit_payout_minor:number;rate_version:number}>("/quotes",{brand_id:brand!.id,face_value:Number(value),quantity:qty}),enabled:!!brand&&Number(value)>0,refetchInterval:15000});
+  const brandRateRows = (cardRates.data?.rates ?? []).filter((rate) => rate.brand_id === brand?.id && rate.is_active);
+  const typeRateRows = brandRateRows.filter((rate) => rate.submission_type === "any" || rate.submission_type === type);
+  const rateCountries = [...new Set(typeRateRows.map((rate) => rate.card_country?.trim().toUpperCase()).filter(Boolean))];
+  const availableCountries = rateCountries.length ? rateCountries : (brand?.countries ?? []);
+  const rateCountryKey = rateCountries.join("|");
+  const quoteCountryReady = rateCountries.length === 0 || !!country;
+  const quote = useQuery({
+    queryKey: ["quote", brand?.id, value, qty, country, type],
+    queryFn: () => api.post<QuoteData>("/quotes", {
+      brand_id: brand!.id,
+      face_value: Number(value),
+      quantity: qty,
+      card_country: country.trim().toUpperCase(),
+      submission_type: type,
+    }),
+    enabled: !!brand && Number(value) > 0 && quoteCountryReady,
+    refetchInterval: 15000,
+  });
   const payout = quote.data?.payout_minor ?? 0;
-  const configuredValues = cardRates.data?.rates.filter(r=>r.brand_id===brand?.id).map(r=>r.face_value) ?? [];
+  const configuredValues = [...new Set(typeRateRows
+    .filter((rate) => !rate.card_country || !country || rate.card_country.toUpperCase() === country.toUpperCase())
+    .map((rate) => rate.face_value))];
+  useEffect(() => {
+    if (country && rateCountries.length && !rateCountries.includes(country.toUpperCase())) setCountry("");
+  }, [country, rateCountryKey]);
   useEffect(()=>{setReviewOpen(false);},[quote.data?.rate_version]);
 
   if (isGuest) return <Redirect href="/(auth)/login" />;
@@ -154,7 +187,7 @@ export default function Trade() {
       toast.show("Select the card type / sub-category", "error");
       return false;
     }
-    if (brand.countries.length > 0 && !country) {
+    if (availableCountries.length > 0 && !country) {
       toast.show("Select the card country / region", "error");
       return false;
     }
@@ -213,7 +246,7 @@ export default function Trade() {
 
   const options = picker === "brand" ? (data?.brands ?? []).map((b) => b.name)
     : picker === "sub" ? (brand?.subcategories ?? [])
-    : picker === "country" ? (brand?.countries ?? []) : [];
+    : picker === "country" ? availableCountries : [];
 
   const onSelect = (val: string) => {
     if (picker === "brand") {
@@ -345,7 +378,7 @@ export default function Trade() {
           </View>
           <View style={styles.rateBox}>
             <Text style={styles.rateLabel}>Rate</Text>
-            <Text style={styles.rateValue}>{quote.isError ? "Could not load a quote" : quote.data ? `$${value} → ${formatNaira(quote.data.unit_payout_minor)} per card` : "Select a card value"}</Text>
+            <Text style={styles.rateValue}>{quote.isError ? "Could not load a matching rate" : quote.data ? `${formatNaira(quote.data.rate_minor_per_usd)} per $1${quote.data.range_min != null && quote.data.range_max != null ? ` · Range $${quote.data.range_min}–$${quote.data.range_max}` : ""}` : "Select the card details and value"}</Text>
           </View>
         </View>
         {quote.isError && <PrimaryButton title="Retry quote" variant="secondary" onPress={() => { void quote.refetch(); }} loading={quote.isRefetching} testID="trade-quote-retry" />}
@@ -457,7 +490,7 @@ export default function Trade() {
                 {!!country && <ReviewRow label="Country" valueText={country} />}
                 <ReviewRow label="Card value" valueText={`$${value}`} />
                 <ReviewRow label="Quantity" valueText={String(qty)} />
-                <ReviewRow label="Rate" valueText={brand ? `$${value} → ${formatNaira(quote.data?.unit_payout_minor ?? 0)}` : ""} />
+                <ReviewRow label="Rate" valueText={quote.data ? `${formatNaira(quote.data.rate_minor_per_usd)} per $1` : ""} />
                 <ReviewRow label="Expected payout" valueText={formatNaira(payout)} />
                 <ReviewRow label={type === "physical" ? "Card images" : "E-code"} valueText={type === "physical" ? `${images.length} uploaded` : "Entered securely"} />
                 {type === "ecode" && images.length > 0 && <ReviewRow label="Supporting images" valueText={`${images.length} uploaded`} />}

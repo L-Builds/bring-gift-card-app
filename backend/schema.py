@@ -36,15 +36,22 @@ Index('users_created', users.c.created_at.desc())
 
 markets = table('markets', 'code name currency', 'minor_digits', 'is_active', required=('code','currency','minor_digits'),
                 constraints=(UniqueConstraint('code'), CheckConstraint('minor_digits BETWEEN 0 AND 3', name='markets_precision')))
-brands = table('brands', 'id name slug category color logo_path', 'rate_kobo_per_usd sort_order', 'is_active is_popular', 'created_at', required=('id',))
+brands = table('brands', 'id name slug category color logo_path', 'rate_kobo_per_usd sort_order', 'is_active is_popular', 'created_at archived_at', required=('id',))
 Index('brands_active_order', brands.c.is_active, brands.c.sort_order)
 
-card_rates = table('card_rates', 'id brand_id market_code', 'face_value payout_minor version', 'is_active', 'updated_at',
-    required=('id','brand_id','market_code','face_value','payout_minor','version'), constraints=(
-        UniqueConstraint('brand_id','market_code','face_value', name='card_rates_denomination_unique'),
+card_rates = table('card_rates', 'id brand_id market_code card_country submission_type',
+    'face_value payout_minor rate_minor_per_usd range_min range_max version', 'is_active is_headline', 'updated_at archived_at',
+    required=('id','brand_id','market_code','submission_type','face_value','payout_minor','version'), constraints=(
         ForeignKeyConstraint(['brand_id'], ['brands.id']), ForeignKeyConstraint(['market_code'], ['markets.code']),
+        CheckConstraint("submission_type IN ('any','physical','ecode')", name='card_rates_submission_type_valid'),
+        CheckConstraint('(range_min IS NULL AND range_max IS NULL) OR (range_min IS NOT NULL AND range_max IS NOT NULL AND range_min >= 0 AND range_max >= range_min)', name='card_rates_range_valid'),
+        CheckConstraint('rate_minor_per_usd IS NULL OR rate_minor_per_usd > 0', name='card_rates_rate_per_usd_positive'),
         CheckConstraint('face_value > 0 AND payout_minor > 0 AND version > 0', name='card_rates_positive')))
+Index('card_rates_rule_unique', card_rates.c.brand_id, card_rates.c.market_code, card_rates.c.card_country, card_rates.c.face_value,
+      card_rates.c.submission_type, func.coalesce(card_rates.c.range_min, -1), func.coalesce(card_rates.c.range_max, -1), unique=True)
 Index('card_rates_market_active', card_rates.c.market_code, card_rates.c.is_active)
+Index('card_rates_rule_lookup', card_rates.c.brand_id, card_rates.c.market_code, card_rates.c.card_country, card_rates.c.face_value,
+      card_rates.c.submission_type, card_rates.c.is_active)
 
 trades = table('trades', 'id user_id brand_id order_id status currency market_code rate_id submission_type',
     'card_value_usd quantity rate_kobo_per_usd expected_payout_kobo approved_payout_kobo minor_digits rate_version unit_payout_minor payout_minor',
@@ -119,4 +126,4 @@ upload_parts = Table('upload_parts', metadata,
     UniqueConstraint('session_id','part'), CheckConstraint('part BETWEEN 0 AND 3 AND octet_length(data) <= 3145728',name='upload_part_limit'))
 TABLES['upload_parts']=upload_parts
 
-SCHEMA_VERSION = '005_brand_logos'
+SCHEMA_VERSION = '009_headline_trade_rates'
