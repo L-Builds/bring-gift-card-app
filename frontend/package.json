@@ -10,7 +10,7 @@
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
     "build:web": "node scripts/build-web.cjs",
-    "check:web": "node --test scripts/check-web-config.test.cjs scripts/check-pwa.test.cjs"
+    "check:web": "node --test scripts/check-web-config.test.cjs scripts/check-pwa.test.cjs scripts/check-admin-phase4.test.cjs scripts/check-trade-evidence-viewer.test.cjs scripts/check-trade-desktop-workspace.test.cjs scripts/check-admin-daily-operations.test.cjs scripts/check-admin-management-workspace.test.cjs scripts/check-admin-dashboard-reports-polish.test.cjs scripts/check-admin-responsive-consistency.test.cjs scripts/check-admin-phase7-regression.test.cjs scripts/check-customer-clean-money-inputs.test.cjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "57.0.16",

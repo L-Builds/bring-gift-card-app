@@ -57,3 +57,10 @@ test("service worker never intercepts authenticated or API requests", () => {
   assert.equal(intercepted(request("https://bring-gift-card-app.vercel.app/_expo/static/js/web/app.js", true)), false);
   assert.equal(intercepted(request("https://bring-gift-card-app.vercel.app/_expo/static/js/web/app.js")), true);
 });
+
+test("admin install hook tracks standalone display mode and installed events", () => {
+  const source = fs.readFileSync(path.join(root, "src", "components", "web-pwa.tsx"), "utf8");
+  assert.match(source, /display-mode: standalone/);
+  assert.match(source, /appinstalled/);
+  assert.match(source, /isInstalled/);
+});

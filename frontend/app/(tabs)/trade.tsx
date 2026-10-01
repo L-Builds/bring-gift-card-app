@@ -336,10 +336,12 @@ export default function Trade() {
         </View>
 
         <View style={styles.payoutCard}>
-          <View style={styles.payoutIcon}><Ionicons name="wallet" size={24} color={colors.success} /></View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.payoutLabel}>Estimated payout</Text>
-            <Text style={styles.payoutValue}>{quote.isError ? "Quote unavailable" : quote.isFetching ? "Checking quote…" : quote.data ? formatNaira(payout) : "—"}</Text>
+          <View style={styles.payoutMain}>
+            <View style={styles.payoutIcon}><Ionicons name="wallet" size={24} color={colors.success} /></View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.payoutLabel}>Estimated payout</Text>
+              <Text style={styles.payoutValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{quote.isError ? "Quote unavailable" : quote.isFetching ? "Checking quote…" : quote.data ? formatNaira(payout) : "—"}</Text>
+            </View>
           </View>
           <View style={styles.rateBox}>
             <Text style={styles.rateLabel}>Rate</Text>
@@ -503,11 +505,12 @@ const useStyles = makeStyles((colors) => ({
   stepper: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
   stepBtn: { width: 42, height: 42, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary, alignItems: "center", justifyContent: "center" },
   qtyText: { minWidth: 24, textAlign: "center", fontWeight: "800", color: colors.onSurface, fontSize: 16 },
-  payoutCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: colors.successBg, borderRadius: radius.xl, padding: spacing.lg },
+  payoutCard: { gap: spacing.md, backgroundColor: colors.successBg, borderRadius: radius.xl, padding: spacing.lg },
+  payoutMain: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   payoutIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: "rgba(21,163,74,0.12)", alignItems: "center", justifyContent: "center" },
   payoutLabel: { color: colors.onSurfaceSecondary, fontSize: 13 },
-  payoutValue: { color: colors.success, fontSize: 24, fontWeight: "800", marginTop: 2 },
-  rateBox: { paddingLeft: spacing.lg, borderLeftWidth: 1, borderLeftColor: "rgba(15,31,68,0.12)", alignItems: "flex-start" },
+  payoutValue: { color: colors.success, fontSize: 26, fontWeight: "800", marginTop: 2 },
+  rateBox: { paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: "rgba(15,31,68,0.12)", alignItems: "flex-start" },
   rateLabel: { color: colors.onSurfaceSecondary, fontSize: 12 },
   rateValue: { color: colors.onSurface, fontWeight: "700", fontSize: 13, marginTop: 3 },
   uploadCard: { backgroundColor: colors.surface, borderRadius: radius.xl, padding: spacing.md },

@@ -241,6 +241,12 @@ async def require_admin(user: dict = Depends(current_user)) -> dict:
     return user
 
 
+async def require_staff(user: dict = Depends(current_user)) -> dict:
+    if user.get("role") != "admin" or staff_role(user) not in STAFF_ROLES:
+        raise HTTPException(403, "Admins only")
+    return user
+
+
 def require_staff_scope(scope: str):
     if scope not in WORKER_SCOPES:
         raise ValueError("Unknown staff scope")
@@ -303,6 +309,19 @@ class LoginIn(BaseModel):
 
 class SessionIn(BaseModel):
     session_id: str = Field(min_length=1)
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=72)
+    new_password: str = Field(min_length=10, max_length=72)
+
+
+class SessionRevokeOthersIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=72)
+
+
+class AdminNotificationPreferenceIn(BaseModel):
+    notifications_enabled: bool
 
 
 class KycIn(BaseModel):
@@ -593,6 +612,91 @@ async def login(x: LoginIn):
 @api.get("/auth/me")
 async def me(user: dict = Depends(current_user)):
     return {"user": public_user(user), "balance_kobo": await balance_kobo(user["id"])}
+
+
+@api.post("/auth/password/change")
+async def change_password(x: PasswordChangeIn, user: dict = Depends(current_user)):
+    if len(x.new_password.encode("utf-8")) > 72:
+        raise HTTPException(422, "Password is too long in UTF-8 bytes")
+
+    async def run(session):
+        account = await db.users.find_one({"id": user["id"], "disabled": {"$ne": True}}, session=session, for_update=True)
+        if not account or not account.get("password_hash"):
+            raise HTTPException(409, "This account does not have a password that can be changed here")
+        if not verify_pw(x.current_password, account["password_hash"]):
+            raise HTTPException(401, "Current password is incorrect")
+        if verify_pw(x.new_password, account["password_hash"]):
+            raise HTTPException(422, "Choose a new password that is different from the current password")
+        if account.get("role") == "admin" and not valid_admin_password(x.new_password):
+            raise HTTPException(422, "Admin password must be 12–72 UTF-8 bytes and end with @admin")
+
+        updated = await db.users.find_one_and_update(
+            {"id": account["id"]},
+            {"$set": {"password_hash": hash_pw(x.new_password), "password_changed_at": now()},
+             "$inc": {"token_version": 1}},
+            return_document=ReturnDocument.AFTER, session=session)
+        await db.audit.insert_one({
+            "actor": account["id"], "action": "security.password_changed",
+            "target": account["id"], "at": now(),
+        }, session=session)
+        return updated
+
+    updated = await db.transaction(run)
+    token = make_token(updated)
+    return {
+        "message": "Password changed. Other signed-in sessions were logged out.",
+        "access_token": token,
+        "user": public_user(updated),
+    }
+
+
+@api.patch("/auth/admin-notifications")
+async def update_admin_notifications(x: AdminNotificationPreferenceIn, user: dict = Depends(current_user)):
+    if user.get("role") != "admin" or staff_role(user) not in STAFF_ROLES:
+        raise HTTPException(403, "Admins only")
+
+    async def run(session):
+        updated = await db.users.find_one_and_update(
+            {"id": user["id"]},
+            {"$set": {"notifications_enabled": x.notifications_enabled}},
+            return_document=ReturnDocument.AFTER, session=session,
+        )
+        await db.audit.insert_one({
+            "actor": user["id"], "action": "preferences.admin_notifications",
+            "target": user["id"], "enabled": x.notifications_enabled, "at": now(),
+        }, session=session)
+        return updated
+
+    updated = await db.transaction(run)
+    return {"user": public_user(updated)}
+
+
+@api.post("/auth/sessions/revoke-others")
+async def revoke_other_sessions(x: SessionRevokeOthersIn, user: dict = Depends(current_user)):
+    async def run(session):
+        account = await db.users.find_one({"id": user["id"], "disabled": {"$ne": True}}, session=session, for_update=True)
+        if not account or not account.get("password_hash"):
+            raise HTTPException(409, "This account does not have a password that can verify this action")
+        if not verify_pw(x.current_password, account["password_hash"]):
+            raise HTTPException(401, "Current password is incorrect")
+
+        updated = await db.users.find_one_and_update(
+            {"id": account["id"]},
+            {"$set": {"sessions_reset_at": now()}, "$inc": {"token_version": 1}},
+            return_document=ReturnDocument.AFTER, session=session)
+        await db.audit.insert_one({
+            "actor": account["id"], "action": "security.other_sessions_revoked",
+            "target": account["id"], "at": now(),
+        }, session=session)
+        return updated
+
+    updated = await db.transaction(run)
+    token = make_token(updated)
+    return {
+        "message": "Other signed-in sessions were logged out. This device remains signed in.",
+        "access_token": token,
+        "user": public_user(updated),
+    }
 
 
 @api.post("/auth/session")
@@ -1554,14 +1658,20 @@ async def admin_update_staff(staff_id: str, x: StaffUpdateIn, admin: dict = Depe
 
 
 @api.get("/admin/stats")
-async def admin_stats(admin: dict = Depends(require_admin)):
+async def admin_stats(admin: dict = Depends(require_staff)):
+    role = staff_role(admin)
+    permissions = set(staff_permissions(admin))
+
+    def allowed(scope: str) -> bool:
+        return role != "worker" or scope in permissions
+
     return {
-        "pending_trades": await db.trades.count_documents({"status": {"$in": ["PENDING_REVIEW", "NEED_MORE_INFO"]}}),
-        "pending_withdrawals": await db.withdrawals.count_documents({"status": {"$in": ["PENDING", "PROCESSING"]}}),
-        "total_customers": await db.users.count_documents({"role": "customer"}),
-        "total_brands": await db.brands.count_documents({}),
-        "pending_kyc": await db.kyc_submissions.count_documents({"status": "PENDING"}),
-        "open_tickets": await db.support_tickets.count_documents({"status": "OPEN"}),
+        "pending_trades": await db.trades.count_documents({"status": {"$in": ["PENDING_REVIEW", "NEED_MORE_INFO"]}}) if allowed("trades") else 0,
+        "pending_withdrawals": await db.withdrawals.count_documents({"status": {"$in": ["PENDING", "PROCESSING"]}}) if allowed("withdrawals") else 0,
+        "total_customers": await db.users.count_documents({"role": "customer"}) if allowed("customers") else 0,
+        "total_brands": await db.brands.count_documents({}) if role != "worker" else 0,
+        "pending_kyc": await db.kyc_submissions.count_documents({"status": "PENDING"}) if allowed("customers") else 0,
+        "open_tickets": await db.support_tickets.count_documents({"status": "OPEN"}) if allowed("support") else 0,
     }
 
 

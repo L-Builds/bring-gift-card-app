@@ -25,7 +25,7 @@ export function canWorkIn(user: User | null, scope: StaffScope): boolean {
 export function canVisitAdminRoute(user: User | null, route: string): boolean {
   if (user?.role !== "admin") return false;
   if (user.staff_role !== "worker") return true;
-  if (!route || route === "index") return true;
+  if (!route || route === "index" || route === "settings") return true;
   const scope: Record<string, StaffScope> = {
     trade: "trades", trades: "trades", withdrawals: "withdrawals",
     support: "support", customer: "customers", customers: "customers",

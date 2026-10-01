@@ -86,12 +86,18 @@ async def test_staff_hierarchy_password_rule_and_scope_revocation(http):
     for path in ("/api/admin/trades", "/api/admin/withdrawals", "/api/admin/users",
                  "/api/admin/staff", "/api/admin/brands", "/api/admin/markets",
                  "/api/admin/card-rates?brand_id=x", "/api/admin/payout-providers",
-                 "/api/admin/readiness", "/api/admin/stats"):
+                 "/api/admin/readiness"):
         denied = await http.get(path, headers=worker_auth)
         assert denied.status_code == 403, (path, denied.status_code, denied.text)
     assert (await http.post("/api/admin/markets", headers=worker_auth, json={
         "code": "ZZ", "name": "Blocked Market", "currency": "USD",
     })).status_code == 403
+    worker_stats = await http.get("/api/admin/stats", headers=worker_auth)
+    assert worker_stats.status_code == 200, worker_stats.text
+    assert worker_stats.json()["pending_trades"] == 0
+    assert worker_stats.json()["pending_withdrawals"] == 0
+    assert worker_stats.json()["total_customers"] == 0
+    assert worker_stats.json()["total_brands"] == 0
     assert (await http.get("/api/admin/kyc", headers=worker_auth)).status_code == 404  # KYC is deferred globally.
 
     assert (await http.patch(f"/api/admin/staff/{manager_id}", headers=manager_auth,
@@ -162,5 +168,5 @@ def test_every_admin_route_has_server_dependency():
     assert admin_routes
     for route in admin_routes:
         dependencies = [dependency.call for dependency in route.dependant.dependencies]
-        assert any(call is s.require_admin or getattr(call, "__name__", "") == "check"
+        assert any(call in {s.require_admin, s.require_staff} or getattr(call, "__name__", "") == "check"
                    for call in dependencies), route.path

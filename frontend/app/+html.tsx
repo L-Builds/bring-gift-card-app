@@ -42,9 +42,9 @@ export default function Root({ children }: PropsWithChildren) {
               }
               /*
                 React Native Web renders TextInput as native input/textarea elements.
-                Mobile Safari/Chrome add their own blue inner focus ring, which looks
-                like a second box inside Bring's designed field. Keep focus handling
-                on the app's outer field/wrapper and remove only the browser-native ring.
+                Mobile Safari/Chrome can add a blue focus rectangle around the native
+                input or its parent. Bring fields already provide their own visual
+                structure, so text entry should stay clean and show only the caret.
               */
               input:focus,
               textarea:focus,
@@ -56,15 +56,6 @@ export default function Root({ children }: PropsWithChildren) {
               input,
               textarea {
                 -webkit-tap-highlight-color: transparent;
-              }
-              #root div:has(> :is(input, textarea):focus-visible:is(
-                [data-testid^="signup-"], [data-testid^="forgot-"],
-                [data-testid^="trade-"], [data-testid^="rates-search"],
-                [data-testid^="txn-filter-"], [data-testid^="ticket-"],
-                [data-testid^="withdraw-"], [data-testid^="referral-"],
-                [data-testid^="pin-reset-"])) {
-                outline: 2px solid #1F5AF6;
-                outline-offset: 2px;
               }
               #root :is(button, a, [role="button"], [role="tab"]):focus-visible {
                 outline: 2px solid #1F5AF6;

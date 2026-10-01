@@ -17,13 +17,30 @@ function publishPrompt(prompt: InstallPrompt | null) {
 }
 
 /** Browsers without beforeinstallprompt retain their normal menu-based install path. */
+function installedDisplayMode() {
+  if (Platform.OS !== "web" || typeof window === "undefined") return false;
+  return window.matchMedia?.("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
+
 export function usePwaInstall() {
   const [canInstall, setCanInstall] = useState(!!pendingInstall);
+  const [isInstalled, setIsInstalled] = useState(installedDisplayMode());
   useEffect(() => {
-    const sync = () => setCanInstall(!!pendingInstall);
+    const sync = () => {
+      setCanInstall(!!pendingInstall);
+      setIsInstalled(installedDisplayMode());
+    };
     listeners.add(sync);
     sync();
-    return () => { listeners.delete(sync); };
+    if (Platform.OS !== "web" || typeof window === "undefined") return () => { listeners.delete(sync); };
+    const media = window.matchMedia?.("(display-mode: standalone)");
+    media?.addEventListener?.("change", sync);
+    window.addEventListener("appinstalled", sync);
+    return () => {
+      listeners.delete(sync);
+      media?.removeEventListener?.("change", sync);
+      window.removeEventListener("appinstalled", sync);
+    };
   }, []);
 
   const install = useCallback(async () => {
@@ -38,7 +55,7 @@ export function usePwaInstall() {
     }
   }, []);
 
-  return { canInstall, install };
+  return { canInstall, isInstalled, install };
 }
 
 export function WebPwa() {

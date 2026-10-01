@@ -38,6 +38,7 @@ type AuthState = {
   login: (identifier: string, password: string, mode?: "email" | "phone") => Promise<User>;
   signup: (v: { full_name: string; email: string; phone: string; password: string; country?: string; market_code?: string; accepted_terms?: boolean; referral_code?: string }) => Promise<User>;
   loginWithGoogle: (sessionId: string) => Promise<User | null>;
+  replaceSession: (accessToken: string, user: User) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -138,6 +139,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return res.user;
   }, []);
 
+  const replaceSession = useCallback(async (accessToken: string, nextUser: User) => {
+    await queryClient.cancelQueries();
+    queryClient.clear();
+    setDisplayCurrency(nextUser.currency || "NGN", nextUser.minor_digits ?? 2);
+    await setToken(accessToken);
+    setTok(accessToken);
+    setUser(nextUser);
+  }, []);
+
   const logout = useCallback(async () => {
     await clearToken();
     await queryClient.cancelQueries();
@@ -167,6 +177,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         signup,
         loginWithGoogle,
+        replaceSession,
         logout,
         refresh,
       }}

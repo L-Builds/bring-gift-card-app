@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, TextInput, Pressable, Modal } from "react-native";
+import { View, Text, ScrollView, TextInput, Pressable, Modal, KeyboardAvoidingView, Platform } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -151,22 +151,27 @@ export default function AdminKycReview() {
       )}
 
       <Modal visible={rejecting} transparent animationType="slide" onRequestClose={() => setRejecting(false)}>
-        <Pressable style={styles.overlay} onPress={() => setRejecting(false)}>
-          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Reject verification</Text>
-            <TextInput
-              style={styles.reasonInput}
-              placeholder="Tell the customer what to fix (e.g. blurry ID photo)"
-              placeholderTextColor={colors.muted}
-              value={reason}
-              onChangeText={setReason}
-              multiline
-              testID="admin-kyc-reason"
-            />
-            <PrimaryButton title="Confirm Reject" onPress={reject} loading={busy} testID="admin-kyc-reject-submit" style={{ marginTop: spacing.md }} />
+        <KeyboardAvoidingView
+          style={styles.modalKeyboard}
+          behavior={Platform.OS === "ios" ? "padding" : Platform.OS === "android" ? "height" : undefined}
+        >
+          <Pressable style={styles.overlay} onPress={() => setRejecting(false)}>
+            <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.sheetHandle} />
+              <Text style={styles.sheetTitle}>Reject verification</Text>
+              <TextInput
+                style={styles.reasonInput}
+                placeholder="Tell the customer what to fix (e.g. blurry ID photo)"
+                placeholderTextColor={colors.muted}
+                value={reason}
+                onChangeText={setReason}
+                multiline
+                testID="admin-kyc-reason"
+              />
+              <PrimaryButton title="Confirm Reject" onPress={reject} loading={busy} testID="admin-kyc-reject-submit" style={{ marginTop: spacing.md }} />
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={!!zoom} transparent animationType="fade" onRequestClose={() => setZoom(null)}>
@@ -194,6 +199,7 @@ const useStyles = makeStyles((colors) => ({
   actBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 52, borderRadius: radius.lg },
   approve: { flex: 1.6, backgroundColor: colors.brandPrimary },
   actText: { fontWeight: "800", fontSize: 14 },
+  modalKeyboard: { flex: 1 },
   overlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: "flex-end" },
   sheet: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: spacing.lg, paddingBottom: spacing.xxxl },
   sheetHandle: { width: 44, height: 5, borderRadius: 3, backgroundColor: colors.border, alignSelf: "center", marginBottom: spacing.md },

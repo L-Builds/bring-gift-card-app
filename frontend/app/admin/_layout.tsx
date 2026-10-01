@@ -10,6 +10,7 @@ import { api } from "@/src/api/client";
 import { useAdminConnection } from "@/src/components/admin-connectivity";
 import { usePwaInstall } from "@/src/components/web-pwa";
 import { canManageSettings, canManageStaff, canWorkIn } from "@/src/lib/staff-access";
+import { playAdminAlertTone, showAdminBrowserNotification, useAdminBrowserPreferences } from "@/src/lib/admin-preferences";
 import { makeStyles, spacing, useTheme } from "@/src/theme";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -30,7 +31,7 @@ const navigation: { label: string; items: NavItem[] }[] = [
     { label: "Markets", href: "/admin/markets", icon: "globe-outline", visible: management },
     { label: "Staff", href: "/admin/staff", icon: "people-circle-outline", visible: canManageStaff },
     { label: "Reports", href: "/admin/reports", icon: "bar-chart-outline", visible: management },
-    { label: "Settings", href: "/admin/settings", icon: "settings-outline", visible: management },
+    { label: "Settings", href: "/admin/settings", icon: "settings-outline", visible: (u) => u?.role === "admin" },
   ] },
 ];
 
@@ -79,10 +80,12 @@ export default function AdminLayout() {
   const { user, logout } = useAuth();
   const { status, lastCheckedAt, lastSyncedAt, refreshing, checkNow, refreshNow } = useAdminConnection();
   const { canInstall, install } = usePwaInstall();
+  const { preferences } = useAdminBrowserPreferences(user?.id || "");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [topMenu, setTopMenu] = useState<"queues" | "account" | null>(null);
   const [reconnected, setReconnected] = useState(false);
   const previousStatus = useRef(status);
+  const previousAttentionCount = useRef<number | null>(null);
   const [now, setNow] = useState(0);
   const desktop = width >= 1024;
   const compact = width < 800;
@@ -92,18 +95,36 @@ export default function AdminLayout() {
   const back = parentRoute(pathname);
   const selected = selectedRoute(pathname);
   const groups = useMemo(() => navigation.map((group) => ({ ...group, items: group.items.filter((item) => item.visible(user)) })).filter((group) => group.items.length), [user]);
-  const manager = canManageSettings(user);
   const queueStats = useQuery({
     queryKey: ["admin-stats"],
     queryFn: () => api.get<{ pending_trades: number; pending_withdrawals: number; open_tickets: number }>("/admin/stats"),
-    enabled: manager,
+    enabled: user?.role === "admin",
   });
-  const queueItems = [
-    { label: "Trades", href: "/admin/trades", count: queueStats.data?.pending_trades, visible: canWorkIn(user, "trades") },
-    { label: "Withdrawals", href: "/admin/withdrawals", count: queueStats.data?.pending_withdrawals, visible: canWorkIn(user, "withdrawals") },
-    { label: "Support", href: "/admin/support", count: queueStats.data?.open_tickets, visible: canWorkIn(user, "support") },
-  ].filter((item) => item.visible);
-  const attentionCount = queueStats.data ? queueStats.data.pending_trades + queueStats.data.pending_withdrawals + queueStats.data.open_tickets : 0;
+  const queueItems = useMemo(() => [
+    { label: "Pending trades", href: "/admin/trades", count: queueStats.data?.pending_trades, visible: canWorkIn(user, "trades"), icon: "swap-horizontal-outline" as IconName, note: "Awaiting review" },
+    { label: "Payout requests", href: "/admin/withdrawals", count: queueStats.data?.pending_withdrawals, visible: canWorkIn(user, "withdrawals"), icon: "cash-outline" as IconName, note: "Pending or processing" },
+    { label: "Open support", href: "/admin/support", count: queueStats.data?.open_tickets, visible: canWorkIn(user, "support"), icon: "chatbubbles-outline" as IconName, note: "Customer tickets" },
+  ].filter((item) => item.visible), [queueStats.data?.open_tickets, queueStats.data?.pending_trades, queueStats.data?.pending_withdrawals, user]);
+  const attentionCount = queueItems.reduce((total, item) => total + (item.count || 0), 0);
+
+  useEffect(() => {
+    previousAttentionCount.current = null;
+  }, [user?.id]);
+  useEffect(() => {
+    if (!queueStats.data) return;
+    if (previousAttentionCount.current == null) {
+      previousAttentionCount.current = attentionCount;
+      return;
+    }
+    const increase = attentionCount - previousAttentionCount.current;
+    previousAttentionCount.current = attentionCount;
+    if (increase <= 0 || !user?.notifications_enabled) return;
+    if (preferences.soundAlerts) playAdminAlertTone();
+    if (preferences.browserNotifications) {
+      const details = queueItems.filter((item) => (item.count || 0) > 0).map((item) => `${item.label}: ${item.count}`).join(" · ");
+      showAdminBrowserNotification("Bring Gift Card Admin", `${increase} new work item${increase === 1 ? "" : "s"} need attention${details ? `. ${details}` : "."}`);
+    }
+  }, [attentionCount, preferences.browserNotifications, preferences.soundAlerts, queueItems, queueStats.data, user?.notifications_enabled]);
 
   useEffect(() => {
     const id = setTimeout(() => { setDrawerOpen(false); setTopMenu(null); }, 0);
@@ -123,11 +144,15 @@ export default function AdminLayout() {
     return () => { clearTimeout(start); clearTimeout(id); };
   }, [status]);
   useEffect(() => {
-    if (Platform.OS !== "web" || !drawerOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setDrawerOpen(false); };
+    if (Platform.OS !== "web" || (!drawerOpen && !topMenu)) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setDrawerOpen(false);
+      setTopMenu(null);
+    };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [drawerOpen]);
+  }, [drawerOpen, topMenu]);
 
   const go = (href: string) => { setDrawerOpen(false); setTopMenu(null); if (href !== pathname) router.push(href as never); };
   const signOut = async () => { setDrawerOpen(false); setTopMenu(null); await logout(); router.replace("/(auth)/login"); };
@@ -184,7 +209,7 @@ export default function AdminLayout() {
         </Pressable>}
         <Pressable onPress={() => setTopMenu(topMenu === "queues" ? null : "queues")} accessibilityRole="button" accessibilityLabel="Open work queues" testID="admin-queues-menu" style={styles.iconButton}>
           <Ionicons name="notifications-outline" size={21} color={colors.onSurfaceSecondary} />
-          {manager && attentionCount > 0 && <View style={styles.alertBadge}><Text style={styles.alertBadgeText}>{attentionCount > 99 ? "99+" : attentionCount}</Text></View>}
+          {attentionCount > 0 && <View style={styles.alertBadge}><Text style={styles.alertBadgeText}>{attentionCount > 99 ? "99+" : attentionCount}</Text></View>}
         </Pressable>
         {canInstall && <Pressable onPress={() => { void install(); }} accessibilityRole="button" accessibilityLabel="Install Bring Admin" style={styles.installButton}>
           <Ionicons name="download-outline" size={17} color={colors.brandPrimary} />{!compact && <Text style={styles.installText}>Install</Text>}
@@ -224,9 +249,12 @@ export default function AdminLayout() {
           <Text style={styles.popoverTitle}>{name}</Text><Text style={styles.staffRole}>{staffRole(user)}</Text>
           <Pressable onPress={() => { void signOut(); }} accessibilityRole="button" accessibilityLabel="Log out" style={styles.popoverItem}><Ionicons name="log-out-outline" size={18} color={colors.onSurfaceSecondary} /><Text style={styles.popoverItemText}>Log out</Text></Pressable>
         </> : <>
-          <Text style={styles.popoverTitle}>Work queues</Text>
+          <Text style={styles.popoverTitle}>Needs attention</Text>
+          <Text style={styles.popoverSubtitle}>{attentionCount > 0 ? `${attentionCount} open work item${attentionCount === 1 ? "" : "s"} across your assigned queues.` : "Your assigned work queues are clear."}</Text>
           {queueItems.length ? queueItems.map((item) => <Pressable key={item.href} onPress={() => go(item.href)} accessibilityRole="link" accessibilityLabel={item.label} style={styles.popoverItem}>
-            <Text style={styles.popoverItemText}>{item.label}</Text><Text style={styles.popoverCount}>{item.count == null ? "Open" : item.count}</Text>
+            <View style={styles.popoverQueueIcon}><Ionicons name={item.icon} size={16} color={colors.brandPrimary} /></View>
+            <View style={{ flex: 1 }}><Text style={styles.popoverItemText}>{item.label}</Text><Text style={styles.popoverItemNote}>{item.note}</Text></View>
+            <Text style={[styles.popoverCount, (item.count || 0) === 0 && styles.popoverCountMuted]}>{item.count == null ? "—" : item.count}</Text>
           </Pressable>) : <Text style={styles.staffRole}>No work areas assigned yet.</Text>}
         </>}
       </View>
@@ -283,6 +311,11 @@ const useStyles = makeStyles((c) => ({
   popoverScrim: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
   popover: { position: "absolute", right: spacing.md, top: 2, width: 260, maxWidth: "90%", padding: spacing.md, borderRadius: 14, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, shadowColor: c.shadow, shadowOpacity: 0.16, shadowRadius: 16, shadowOffset: { width: 0, height: 5 }, elevation: 10 },
   popoverTitle: { color: c.onSurface, fontWeight: "800", fontSize: 14, marginBottom: 3 },
-  popoverItem: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: spacing.sm, borderTopWidth: 1, borderTopColor: c.divider, marginTop: spacing.sm, paddingTop: spacing.sm },
-  popoverItemText: { color: c.onSurface, fontSize: 13, fontWeight: "700", flex: 1 }, popoverCount: { color: c.brandPrimary, fontSize: 12, fontWeight: "800" },
+  popoverSubtitle: { color: c.muted, fontSize: 10.5, lineHeight: 15, marginBottom: spacing.xs },
+  popoverItem: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: spacing.sm, borderTopWidth: 1, borderTopColor: c.divider, marginTop: spacing.sm, paddingTop: spacing.sm },
+  popoverQueueIcon: { width: 30, height: 30, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: c.brandSecondary },
+  popoverItemText: { color: c.onSurface, fontSize: 12.5, fontWeight: "800" },
+  popoverItemNote: { color: c.muted, fontSize: 10, marginTop: 2 },
+  popoverCount: { color: c.brandPrimary, fontSize: 13, fontWeight: "800" },
+  popoverCountMuted: { color: c.muted },
 }));

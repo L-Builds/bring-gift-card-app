@@ -42,6 +42,7 @@ export default function Withdraw() {
   useEffect(()=>{requestKey.current=`wd_${Date.now()}_${Math.random().toString(36).slice(2)}`;},[amount,selected]);
   const balance = wallet?.available_balance_kobo ?? 0;
   const accounts = accData?.accounts ?? [];
+  const currencyPrefix = user?.currency === "NGN" ? "₦" : (user?.currency || "NGN");
   const amountMinor = toMinor(amount, user?.minor_digits ?? 2);
 
   useEffect(() => {
@@ -115,12 +116,13 @@ export default function Withdraw() {
       <StackHeader title="Withdraw" />
       <KeyboardAwareScrollView bottomOffset={20} contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: insets.bottom + 100, gap: spacing.lg }}>
         <View style={styles.amountCard}>
-          <Text style={styles.amountLabel}>Enter amount</Text>
+          <Text style={styles.amountLabel}>Withdrawal amount</Text>
           <View style={styles.amountRow}>
+            <Text style={styles.currencyPrefix}>{currencyPrefix}</Text>
             <TextInput
               style={styles.amountInput}
-              placeholder={`${user?.currency || "NGN"} amount`}
-              placeholderTextColor={colors.onSurface}
+              placeholder="0.00"
+              placeholderTextColor={colors.muted}
               keyboardType="decimal-pad"
               value={amount}
               onChangeText={(t) => setAmount(t.replace(/[^0-9.]/g, ""))}
@@ -197,9 +199,10 @@ export default function Withdraw() {
 
 const useStyles = makeStyles((colors) => ({
   amountCard: { backgroundColor: colors.surface, borderRadius: radius.xl, padding: spacing.xl },
-  amountLabel: { color: colors.muted, fontSize: 14 },
-  amountRow: { flexDirection: "row", alignItems: "center", marginTop: spacing.sm },
-  amountInput: { flex: 1, fontSize: 34, fontWeight: "800", color: colors.onSurface, padding: 0 },
+  amountLabel: { color: colors.onSurfaceSecondary, fontSize: 14, fontWeight: "700" },
+  amountRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm },
+  currencyPrefix: { color: colors.onSurface, fontSize: 28, fontWeight: "800" },
+  amountInput: { flex: 1, minWidth: 0, fontSize: 28, fontWeight: "800", color: colors.onSurface, padding: 0 },
   allBtn: { backgroundColor: colors.brandSecondary, borderRadius: radius.md, paddingHorizontal: spacing.lg, height: 40, alignItems: "center", justifyContent: "center" },
   allText: { color: colors.brandPrimary, fontWeight: "800" },
   balInfo: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.brandSecondary, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.lg },

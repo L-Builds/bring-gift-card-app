@@ -10,12 +10,13 @@ import { api } from "@/src/api/client";
 import { canManageSettings, canWorkIn } from "@/src/lib/staff-access";
 import { formatDate, formatDateTime, formatMoney } from "@/src/lib/format";
 import { EmptyState, StatusBadge } from "@/src/components/ui";
-import { makeStyles, spacing, useTheme } from "@/src/theme";
+import { makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 type Stats = {
   pending_trades: number;
   pending_withdrawals: number;
   open_tickets: number;
+  pending_kyc: number;
   total_customers: number;
   total_brands: number;
 };
@@ -42,17 +43,24 @@ type RateActivity = {
   rate?: { face_value: number; payout_minor: number };
 };
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
-type Queue = { label: string; key: keyof Pick<Stats, "pending_trades" | "pending_withdrawals" | "open_tickets">; href: string; icon: IconName; description: string };
-
-const queues: Queue[] = [
-  { label: "Pending trades", key: "pending_trades", href: "/admin/trades", icon: "swap-horizontal-outline", description: "Trades awaiting review" },
-  { label: "Payout requests", key: "pending_withdrawals", href: "/admin/withdrawals", icon: "cash-outline", description: "Withdrawals to process" },
-  { label: "Open support", key: "open_tickets", href: "/admin/support", icon: "chatbubbles-outline", description: "Customer conversations" },
-];
-const scopeForHref: Record<string, "trades" | "withdrawals" | "support" | "customers"> = {
-  "/admin/trades": "trades", "/admin/withdrawals": "withdrawals",
-  "/admin/support": "support", "/admin/customers": "customers",
+type Scope = "trades" | "withdrawals" | "support" | "customers";
+type QueueItem = {
+  label: string;
+  shortLabel: string;
+  key: keyof Pick<Stats, "pending_trades" | "pending_withdrawals" | "open_tickets" | "pending_kyc">;
+  href: string;
+  icon: IconName;
+  description: string;
+  scope: Scope;
+  actionable: boolean;
 };
+
+const queueItems: QueueItem[] = [
+  { label: "Pending trades", shortLabel: "Trades", key: "pending_trades", href: "/admin/trades", icon: "swap-horizontal-outline", description: "Awaiting review", scope: "trades", actionable: true },
+  { label: "Payout requests", shortLabel: "Withdrawals", key: "pending_withdrawals", href: "/admin/withdrawals", icon: "cash-outline", description: "Pending or processing", scope: "withdrawals", actionable: true },
+  { label: "Open support", shortLabel: "Support", key: "open_tickets", href: "/admin/support", icon: "chatbubbles-outline", description: "Open customer tickets", scope: "support", actionable: true },
+  { label: "Verification", shortLabel: "Verification", key: "pending_kyc", href: "/admin/verification", icon: "shield-checkmark-outline", description: "Verification is paused for this release", scope: "customers", actionable: false },
+];
 
 function greeting() {
   const hour = new Date().getHours();
@@ -68,12 +76,16 @@ export default function AdminHome() {
   const { loading, isAdmin, user } = useAuth();
   const management = canManageSettings(user);
   const canReviewTrades = canWorkIn(user, "trades");
-  const assigned = Object.values(scopeForHref).filter((scope) => canWorkIn(user, scope));
+  const visibleQueues = queueItems.filter((item) => canWorkIn(user, item.scope));
+  const actionableQueues = visibleQueues.filter((item) => item.actionable);
+  const assignedScopes = ["trades", "withdrawals", "customers", "support"].filter((scope) => canWorkIn(user, scope as Scope));
   const firstName = (user?.full_name?.trim() || user?.email?.split("@")[0] || "there").split(/\s+/)[0];
+
   const stats = useQuery({
     queryKey: ["admin-stats"],
     queryFn: () => api.get<Stats>("/admin/stats"),
-    enabled: isAdmin && management,
+    enabled: isAdmin,
+    refetchInterval: 15000,
   });
   const trades = useQuery({
     queryKey: ["admin-dashboard-trades"],
@@ -91,99 +103,167 @@ export default function AdminHome() {
   if (loading) return <View style={styles.loading}><ActivityIndicator size="large" color={colors.brandPrimary} /></View>;
   if (!isAdmin) return <Redirect href="/(tabs)" />;
 
-  const queueWidth = width >= 1100 ? "31.5%" : width >= 700 ? "48%" : "100%";
-  const tools = [
-    { label: "Trades", href: "/admin/trades", icon: "swap-horizontal-outline" as IconName },
-    { label: "Withdrawals", href: "/admin/withdrawals", icon: "cash-outline" as IconName },
-    { label: "Customers", href: "/admin/customers", icon: "people-outline" as IconName },
-    { label: "Support", href: "/admin/support", icon: "chatbubbles-outline" as IconName },
-    ...(management ? [
-      { label: "Catalog", href: "/admin/catalog", icon: "albums-outline" as IconName },
-      { label: "Rates", href: "/admin/rates", icon: "pricetags-outline" as IconName },
-    ] : []),
-  ].filter((item) => !scopeForHref[item.href] || canWorkIn(user, scopeForHref[item.href]));
+  const compactMetrics = width < 700;
+  const desktopWorkspace = width >= 1080;
+  const metricWidth = width >= 1180 ? "24%" : width >= 720 ? "48.7%" : "100%";
+  const attention = actionableQueues
+    .map((item) => ({ ...item, count: stats.data?.[item.key] ?? 0 }))
+    .filter((item) => item.count > 0);
+
+  const refresh = () => {
+    void stats.refetch();
+    if (canReviewTrades) void trades.refetch();
+    if (management) void activity.refetch();
+  };
 
   return <View style={styles.screen}>
-    <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: width < 640 ? spacing.lg : spacing.xxl, paddingBottom: insets.bottom + spacing.xxxl }]} showsVerticalScrollIndicator={false}>
-      <View style={styles.greetingRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.eyebrow}>COMPANY WORKSPACE</Text>
+    <ScrollView
+      contentContainerStyle={[
+        styles.content,
+        { paddingHorizontal: width < 640 ? spacing.lg : spacing.xxl, paddingBottom: insets.bottom + spacing.xxxl },
+      ]}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.pageHeading}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.eyebrow}>OPERATIONS</Text>
           <Text style={styles.greeting}>{greeting()}, {firstName}</Text>
-          <Text style={styles.subtitle}>Here is what needs attention in Bring Gift Card.</Text>
+          <Text style={styles.subtitle}>A live view of the work your team needs to handle.</Text>
         </View>
-        <Pressable onPress={() => { void stats.refetch(); void trades.refetch(); }} accessibilityRole="button" accessibilityLabel="Refresh dashboard" style={styles.refreshButton}>
-          <Ionicons name="refresh-outline" size={18} color={colors.brandPrimary} />
-          {width >= 640 && <Text style={styles.refreshText}>Refresh</Text>}
+        <Pressable onPress={refresh} accessibilityRole="button" accessibilityLabel="Refresh dashboard" style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
+          <Ionicons name="refresh-outline" size={17} color={colors.brandPrimary} />
+          {!compactMetrics && <Text style={styles.secondaryButtonText}>Refresh</Text>}
         </Pressable>
       </View>
 
-      {management && <View>
-        <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>At a glance</Text><Text style={styles.sectionHint}>Automatically checks for updates</Text></View>
-        <View style={styles.statGrid}>
-          {queues.map((queue) => <Pressable
-            key={queue.key} onPress={() => router.push(queue.href as never)} accessibilityRole="link" accessibilityLabel={queue.label}
-            testID={`admin-stat-${queue.key}`}
-            style={({ pressed }) => [styles.statCard, { width: queueWidth }, pressed && styles.pressed]}
-          >
-            <View style={styles.statTop}><View style={styles.statIcon}><Ionicons name={queue.icon} size={22} color={colors.brandPrimary} /></View><Ionicons name="arrow-forward" size={17} color={colors.muted} /></View>
-            <Text style={styles.statValue}>{stats.isLoading && !stats.data ? "…" : stats.data ? stats.data[queue.key].toLocaleString() : "—"}</Text>
-            <Text style={styles.statLabel}>{queue.label}</Text>
-            <Text style={styles.statDescription}>{queue.description}</Text>
-          </Pressable>)}
+      <View>
+        <View style={styles.sectionHeading}>
+          <View>
+            <Text style={styles.sectionTitle}>Work summary</Text>
+            <Text style={styles.sectionHint}>Counts come from the live production queues you can access.</Text>
+          </View>
+          {stats.isFetching && <Text style={styles.syncText}>Updating…</Text>}
         </View>
-        {stats.isError && <View style={styles.errorRow}><Text style={styles.errorText}>Queue totals are unavailable.</Text><Pressable onPress={() => { void stats.refetch(); }} accessibilityRole="button"><Text style={styles.retryText}>Retry</Text></Pressable></View>}
-      </View>}
+        {stats.isError && !stats.data ? <View style={styles.inlineNotice}>
+          <Text style={styles.errorText}>Work totals are unavailable.</Text>
+          <Pressable onPress={() => { void stats.refetch(); }} accessibilityRole="button"><Text style={styles.linkText}>Retry</Text></Pressable>
+        </View> : <View style={styles.metricGrid}>
+          {visibleQueues.map((item) => {
+            const count = stats.data?.[item.key];
+            return <Pressable
+              key={item.key}
+              onPress={() => router.push(item.href as never)}
+              accessibilityRole="link"
+              accessibilityLabel={item.label}
+              testID={`admin-stat-${item.key}`}
+              style={({ pressed }) => [styles.metric, { width: metricWidth }, pressed && styles.pressed]}
+            >
+              <View style={styles.metricLabelRow}>
+                <Ionicons name={item.icon} size={18} color={colors.brandPrimary} />
+                <Text style={styles.metricLabel}>{item.shortLabel}</Text>
+                <Ionicons name="chevron-forward" size={15} color={colors.muted} style={{ marginLeft: "auto" }} />
+              </View>
+              <Text style={styles.metricValue}>{stats.isLoading && count == null ? "…" : (count ?? 0).toLocaleString()}</Text>
+              <Text style={styles.metricDescription}>{item.description}</Text>
+            </Pressable>;
+          })}
+        </View>}
+      </View>
 
-      {user?.staff_role === "worker" && assigned.length === 0 && <View style={styles.panel}>
+      {user?.staff_role === "worker" && assignedScopes.length === 0 && <View style={styles.sectionSurface}>
         <EmptyState icon="person-circle-outline" title="No workspace assigned yet" subtitle="Your manager can assign Trades, Withdrawals, Customers, or Support from Staff." />
       </View>}
 
-      {canReviewTrades && <View style={styles.panel}>
-        <View style={styles.panelHeading}>
-          <View style={{ flex: 1 }}><Text style={styles.sectionTitle}>Recent trades</Text><Text style={styles.panelSub}>The latest submitted trades</Text></View>
-          <Pressable onPress={() => router.push("/admin/trades")} accessibilityRole="link" accessibilityLabel="View all trades" style={styles.viewAll}><Text style={styles.viewAllText}>View all</Text><Ionicons name="arrow-forward" size={15} color={colors.brandPrimary} /></Pressable>
-        </View>
-        {trades.isLoading && !trades.data ? <View style={styles.inlineState}><ActivityIndicator color={colors.brandPrimary} /><Text style={styles.panelSub}>Loading trades…</Text></View>
-          : trades.isError ? <View style={styles.inlineState}><Text style={styles.errorText}>Recent trades could not be loaded.</Text><Pressable onPress={() => { void trades.refetch(); }} accessibilityRole="button"><Text style={styles.retryText}>Try again</Text></Pressable></View>
-          : !trades.data?.trades.length ? <EmptyState icon="receipt-outline" title="No trades yet" subtitle="Submitted trades will appear here." />
-          : width >= 820 ? <View>
-            <View style={styles.tableHeader}><Text style={[styles.columnTitle, styles.orderColumn]}>ORDER</Text><Text style={[styles.columnTitle, styles.customerColumn]}>CUSTOMER</Text><Text style={[styles.columnTitle, styles.cardColumn]}>CARD</Text><Text style={[styles.columnTitle, styles.amountColumn]}>PAYOUT</Text><Text style={[styles.columnTitle, styles.statusColumn]}>STATUS</Text></View>
-            {trades.data.trades.slice(0, 6).map((trade) => <Pressable key={trade.id} onPress={() => router.push(`/admin/trade/${trade.id}`)} accessibilityRole="link" accessibilityLabel={`Open trade ${trade.order_id}`} style={({ pressed }) => [styles.tableRow, pressed && styles.pressed]}>
-              <View style={styles.orderColumn}><Text style={styles.rowMain} numberOfLines={1}>{trade.order_id}</Text><Text style={styles.rowSub}>{formatDate(trade.created_at)}</Text></View>
-              <Text style={[styles.rowMain, styles.customerColumn]} numberOfLines={1}>{trade.customer_name || "Customer"}</Text>
-              <Text style={[styles.rowMain, styles.cardColumn]} numberOfLines={1}>{trade.brand_name} · ${trade.card_value_usd} × {trade.quantity}</Text>
-              <Text style={[styles.rowMain, styles.amountColumn]} numberOfLines={1}>{formatMoney(trade.expected_payout_kobo, trade.currency || "NGN", trade.minor_digits ?? 2)}</Text>
-              <View style={styles.statusColumn}><StatusBadge status={trade.status} /></View>
-            </Pressable>)}
+      <View style={[styles.workspaceGrid, desktopWorkspace && styles.workspaceGridDesktop]}>
+        {canReviewTrades && <View style={[styles.sectionSurface, styles.recentTradesPanel, desktopWorkspace && { flex: 1.8 }]}>
+          <View style={styles.sectionBar}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.sectionTitle}>Recent trades</Text>
+              <Text style={styles.sectionHint}>Latest submissions across the trade queue.</Text>
+            </View>
+            <Pressable onPress={() => router.push("/admin/trades")} accessibilityRole="link" accessibilityLabel="View all trades" style={styles.textLink}>
+              <Text style={styles.linkText}>View all</Text><Ionicons name="arrow-forward" size={14} color={colors.brandPrimary} />
+            </Pressable>
           </View>
-          : <View>{trades.data.trades.slice(0, 6).map((trade) => <Pressable key={trade.id} onPress={() => router.push(`/admin/trade/${trade.id}`)} accessibilityRole="link" accessibilityLabel={`Open trade ${trade.order_id}`} style={({ pressed }) => [styles.mobileTrade, pressed && styles.pressed]}>
-            <View style={{ flex: 1 }}><Text style={styles.rowMain}>{trade.brand_name} · ${trade.card_value_usd} × {trade.quantity}</Text><Text style={styles.rowSub}>{trade.order_id} · {trade.customer_name || "Customer"}</Text><Text style={styles.rowSub}>{formatDate(trade.created_at)}</Text></View>
-            <View style={styles.mobileTradeRight}><Text style={styles.rowMain}>{formatMoney(trade.expected_payout_kobo, trade.currency || "NGN", trade.minor_digits ?? 2)}</Text><StatusBadge status={trade.status} /></View>
-          </Pressable>)}</View>}
-      </View>}
+          {trades.isLoading && !trades.data ? <View style={styles.loadingRow}><ActivityIndicator color={colors.brandPrimary} /><Text style={styles.sectionHint}>Loading trades…</Text></View>
+            : trades.isError ? <View style={styles.loadingRow}><Text style={styles.errorText}>Recent trades could not be loaded.</Text><Pressable onPress={() => { void trades.refetch(); }}><Text style={styles.linkText}>Try again</Text></Pressable></View>
+            : !trades.data?.trades.length ? <EmptyState icon="receipt-outline" title="No trades yet" subtitle="Submitted trades will appear here." />
+            : width >= 820 ? <View>
+              <View style={styles.tableHeader}>
+                <Text style={[styles.tableHeading, styles.orderColumn]}>Order</Text>
+                <Text style={[styles.tableHeading, styles.customerColumn]}>Customer</Text>
+                <Text style={[styles.tableHeading, styles.cardColumn]}>Card</Text>
+                <Text style={[styles.tableHeading, styles.amountColumn]}>Payout</Text>
+                <Text style={[styles.tableHeading, styles.statusColumn]}>Status</Text>
+              </View>
+              {trades.data.trades.slice(0, 6).map((trade) => <Pressable
+                key={trade.id}
+                onPress={() => router.push(`/admin/trade/${trade.id}`)}
+                accessibilityRole="link"
+                accessibilityLabel={`Open trade ${trade.order_id}`}
+                style={({ pressed }) => [styles.tableRow, pressed && styles.rowPressed]}
+              >
+                <View style={styles.orderColumn}><Text style={styles.rowMain} numberOfLines={1}>{trade.order_id}</Text><Text style={styles.rowSub}>{formatDate(trade.created_at)}</Text></View>
+                <Text style={[styles.rowMain, styles.customerColumn]} numberOfLines={1}>{trade.customer_name || "Customer"}</Text>
+                <Text style={[styles.rowMain, styles.cardColumn]} numberOfLines={1}>{trade.brand_name} · ${trade.card_value_usd} × {trade.quantity}</Text>
+                <Text style={[styles.rowMain, styles.amountColumn]} numberOfLines={1}>{formatMoney(trade.expected_payout_kobo, trade.currency || "NGN", trade.minor_digits ?? 2)}</Text>
+                <View style={styles.statusColumn}><StatusBadge status={trade.status} /></View>
+              </Pressable>)}
+            </View>
+            : <View>{trades.data.trades.slice(0, 6).map((trade) => <Pressable
+              key={trade.id}
+              onPress={() => router.push(`/admin/trade/${trade.id}`)}
+              accessibilityRole="link"
+              accessibilityLabel={`Open trade ${trade.order_id}`}
+              style={({ pressed }) => [styles.mobileRow, pressed && styles.rowPressed]}
+            >
+              <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.rowMain}>{trade.brand_name} · ${trade.card_value_usd} × {trade.quantity}</Text><Text style={styles.rowSub}>{trade.order_id} · {trade.customer_name || "Customer"}</Text><Text style={styles.rowSub}>{formatDate(trade.created_at)}</Text></View>
+              <View style={styles.mobileRowRight}><Text style={styles.rowMain}>{formatMoney(trade.expected_payout_kobo, trade.currency || "NGN", trade.minor_digits ?? 2)}</Text><StatusBadge status={trade.status} /></View>
+            </Pressable>)}</View>}
+        </View>}
 
-      {management && <View style={styles.panel}>
-        <View style={styles.panelHeading}>
-          <View style={{ flex: 1 }}><Text style={styles.sectionTitle}>Recent activity</Text><Text style={styles.panelSub}>Catalog rate updates recorded by the system</Text></View>
-          <Pressable onPress={() => router.push("/admin/rate-history")} accessibilityRole="link" accessibilityLabel="View rate history" style={styles.viewAll}><Text style={styles.viewAllText}>Rate history</Text><Ionicons name="arrow-forward" size={15} color={colors.brandPrimary} /></Pressable>
+        <View style={[styles.sectionSurface, desktopWorkspace && { flex: 1 }]} testID="admin-attention-needed">
+          <View style={styles.sectionBar}>
+            <View>
+              <Text style={styles.sectionTitle}>Attention needed</Text>
+              <Text style={styles.sectionHint}>Only actionable work appears here.</Text>
+            </View>
+          </View>
+          {stats.isLoading && !stats.data ? <View style={styles.loadingRow}><ActivityIndicator color={colors.brandPrimary} /></View>
+            : stats.isError && !stats.data ? <View style={styles.loadingRow}><Text style={styles.errorText}>Attention queues are unavailable.</Text></View>
+            : attention.length === 0 ? <View style={styles.clearState}>
+              <View style={styles.clearIcon}><Ionicons name="checkmark" size={18} color={colors.success} /></View>
+              <View style={{ flex: 1 }}><Text style={styles.clearTitle}>Queues are clear</Text><Text style={styles.rowSub}>No assigned work currently needs action.</Text></View>
+            </View>
+            : attention.map((item) => <Pressable key={item.key} onPress={() => router.push(item.href as never)} accessibilityRole="link" style={({ pressed }) => [styles.attentionRow, pressed && styles.rowPressed]}>
+              <View style={styles.attentionIcon}><Ionicons name={item.icon} size={18} color={colors.brandPrimary} /></View>
+              <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.rowMain}>{item.label}</Text><Text style={styles.rowSub}>{item.description}</Text></View>
+              <Text style={styles.attentionCount}>{item.count}</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+            </Pressable>)}
+          {visibleQueues.some((item) => item.key === "pending_kyc") && <View style={styles.verificationNote}>
+            <Ionicons name="information-circle-outline" size={17} color={colors.muted} />
+            <Text style={styles.verificationText}>Verification remains available in the workspace but is paused as a required customer step for this release.</Text>
+          </View>}
         </View>
-        {activity.isLoading && !activity.data ? <View style={styles.inlineState}><ActivityIndicator color={colors.brandPrimary} /><Text style={styles.panelSub}>Loading activity…</Text></View>
-          : activity.isError ? <View style={styles.inlineState}><Text style={styles.errorText}>Rate activity is unavailable.</Text><Pressable onPress={() => { void activity.refetch(); }} accessibilityRole="button"><Text style={styles.retryText}>Try again</Text></Pressable></View>
-          : !activity.data?.changes.length ? <View style={styles.inlineState}><Text style={styles.panelSub}>No rate changes recorded yet.</Text></View>
-          : activity.data.changes.slice(0, 4).map((change, index) => <View key={`${change.target}:${change.version}:${index}`} style={styles.activityRow}>
-            <View style={styles.activityIcon}><Ionicons name={change.action === "rate.disabled" ? "remove-circle-outline" : "pricetag-outline"} size={18} color={colors.brandPrimary} /></View>
-            <View style={{ flex: 1 }}><Text style={styles.rowMain}>{change.brand_name} · {change.action === "rate.disabled" ? "Rate disabled" : "Rate updated"}</Text>
+      </View>
+
+      {management && <View style={styles.sectionSurface} testID="admin-recent-activity">
+        <View style={styles.sectionBar}>
+          <View style={{ flex: 1 }}><Text style={styles.sectionTitle}>Recent activity</Text><Text style={styles.sectionHint}>Latest catalog rate changes recorded by the system.</Text></View>
+          <Pressable onPress={() => router.push("/admin/rate-history")} accessibilityRole="link" accessibilityLabel="View rate history" style={styles.textLink}><Text style={styles.linkText}>Rate history</Text><Ionicons name="arrow-forward" size={14} color={colors.brandPrimary} /></Pressable>
+        </View>
+        {activity.isLoading && !activity.data ? <View style={styles.loadingRow}><ActivityIndicator color={colors.brandPrimary} /><Text style={styles.sectionHint}>Loading activity…</Text></View>
+          : activity.isError ? <View style={styles.loadingRow}><Text style={styles.errorText}>Rate activity is unavailable.</Text><Pressable onPress={() => { void activity.refetch(); }}><Text style={styles.linkText}>Try again</Text></Pressable></View>
+          : !activity.data?.changes.length ? <View style={styles.emptyCompact}><Text style={styles.sectionHint}>No rate changes have been recorded yet.</Text></View>
+          : activity.data.changes.slice(0, 5).map((change, index) => <View key={`${change.target}:${change.version}:${index}`} style={styles.activityRow}>
+            <View style={styles.activityMarker}><View style={styles.activityDot} />{index < Math.min(4, activity.data.changes.length - 1) && <View style={styles.activityLine} />}</View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.rowMain}>{change.brand_name} · {change.action === "rate.disabled" ? "Rate disabled" : "Rate updated"}</Text>
               <Text style={styles.rowSub}>{change.market?.name || "Market"}{change.rate ? ` · $${change.rate.face_value} → ${formatMoney(change.rate.payout_minor, change.market?.currency || "NGN", change.market?.minor_digits ?? 2)}` : ""}</Text>
             </View>
             <Text style={styles.activityTime}>{formatDateTime(change.at)}</Text>
           </View>)}
-      </View>}
-
-      {tools.length > 0 && <View style={styles.panel}>
-        <View style={styles.panelHeading}><Text style={styles.sectionTitle}>Your tools</Text></View>
-        <View style={styles.toolGrid}>{tools.map((item) => <Pressable key={item.href} onPress={() => router.push(item.href as never)} accessibilityRole="link" accessibilityLabel={item.label} style={({ pressed }) => [styles.tool, pressed && styles.pressed]}>
-          <Ionicons name={item.icon} size={19} color={colors.brandPrimary} /><Text style={styles.toolText}>{item.label}</Text><Ionicons name="chevron-forward" size={15} color={colors.muted} />
-        </Pressable>)}</View>
       </View>}
     </ScrollView>
   </View>;
@@ -193,42 +273,58 @@ const useStyles = makeStyles((c) => ({
   screen: { flex: 1, backgroundColor: c.screenBgAlt },
   loading: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: c.screenBgAlt },
   content: { width: "100%", maxWidth: 1440, alignSelf: "center", paddingTop: spacing.xxl, gap: spacing.xxl },
-  greetingRow: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
-  eyebrow: { color: c.brandPrimary, fontSize: 10, fontWeight: "800", letterSpacing: 1.5 },
-  greeting: { color: c.onSurface, fontSize: 27, fontWeight: "800", marginTop: 4 },
+  pageHeading: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
+  eyebrow: { color: c.brandPrimary, fontSize: 10, fontWeight: "800", letterSpacing: 1.4 },
+  greeting: { color: c.onSurface, fontSize: 28, fontWeight: "800", marginTop: 4, letterSpacing: -0.4 },
   subtitle: { color: c.onSurfaceSecondary, fontSize: 13, marginTop: 5 },
-  refreshButton: { minHeight: 36, flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 10, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, paddingHorizontal: spacing.md },
-  refreshText: { color: c.brandPrimary, fontSize: 12, fontWeight: "700" },
-  sectionHeading: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginBottom: spacing.md },
-  sectionTitle: { color: c.onSurface, fontSize: 16, fontWeight: "800" },
-  sectionHint: { color: c.muted, fontSize: 11 },
-  statGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: spacing.md },
-  statCard: { minWidth: 200, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 16, padding: spacing.lg },
-  statTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  statIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: c.brandSecondary, alignItems: "center", justifyContent: "center" },
-  statValue: { color: c.onSurface, fontSize: 30, fontWeight: "800", marginTop: spacing.md },
-  statLabel: { color: c.onSurface, fontSize: 13, fontWeight: "800", marginTop: 2 },
-  statDescription: { color: c.muted, fontSize: 11, marginTop: 3 },
-  errorRow: { flexDirection: "row", gap: spacing.md, marginTop: spacing.sm },
-  errorText: { color: c.error, fontSize: 12 }, retryText: { color: c.brandPrimary, fontSize: 12, fontWeight: "800" },
-  panel: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 16, overflow: "hidden" },
-  panelHeading: { padding: spacing.lg, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderBottomColor: c.divider, gap: spacing.md },
-  panelSub: { color: c.muted, fontSize: 11, marginTop: 3 },
-  viewAll: { flexDirection: "row", alignItems: "center", gap: 5, padding: spacing.sm }, viewAllText: { color: c.brandPrimary, fontSize: 12, fontWeight: "800" },
-  inlineState: { minHeight: 120, flexDirection: "row", gap: spacing.md, justifyContent: "center", alignItems: "center" },
-  tableHeader: { minHeight: 34, flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.lg, backgroundColor: c.surfaceSecondary, gap: spacing.md },
-  columnTitle: { color: c.muted, fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
+  secondaryButton: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 9, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, paddingHorizontal: spacing.md },
+  secondaryButtonText: { color: c.brandPrimary, fontSize: 12, fontWeight: "800" },
+  sectionHeading: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: spacing.lg, marginBottom: spacing.md },
+  sectionTitle: { color: c.onSurface, fontSize: 15, fontWeight: "800" },
+  sectionHint: { color: c.muted, fontSize: 11, marginTop: 3 },
+  syncText: { color: c.brandPrimary, fontSize: 11, fontWeight: "700" },
+  metricGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: spacing.md },
+  metric: { minWidth: 190, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: radius.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
+  metricLabelRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  metricLabel: { color: c.onSurfaceSecondary, fontSize: 12, fontWeight: "700" },
+  metricValue: { color: c.onSurface, fontSize: 25, fontWeight: "800", marginTop: spacing.sm, letterSpacing: -0.5 },
+  metricDescription: { color: c.muted, fontSize: 10, marginTop: 3 },
+  inlineNotice: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: radius.md, paddingHorizontal: spacing.lg },
+  workspaceGrid: { gap: spacing.lg },
+  workspaceGridDesktop: { flexDirection: "row", alignItems: "flex-start" },
+  sectionSurface: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: radius.md, overflow: "hidden" },
+  recentTradesPanel: { minWidth: 0 },
+  sectionBar: { minHeight: 58, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.md, borderBottomWidth: 1, borderBottomColor: c.divider },
+  textLink: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: spacing.xs },
+  linkText: { color: c.brandPrimary, fontSize: 12, fontWeight: "800" },
+  loadingRow: { minHeight: 96, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.md, padding: spacing.lg },
+  errorText: { color: c.error, fontSize: 12 },
+  tableHeader: { minHeight: 36, flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.lg, backgroundColor: c.surfaceSecondary, gap: spacing.md },
+  tableHeading: { color: c.muted, fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.45 },
   tableRow: { minHeight: 62, flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.lg, borderTopWidth: 1, borderTopColor: c.divider, gap: spacing.md },
-  orderColumn: { flex: 1.2, minWidth: 100 }, customerColumn: { flex: 1.2, minWidth: 100 },
-  cardColumn: { flex: 1.4, minWidth: 130 }, amountColumn: { flex: 1.1, minWidth: 100 }, statusColumn: { flex: 1, minWidth: 100 },
-  rowMain: { color: c.onSurface, fontSize: 12, fontWeight: "700" }, rowSub: { color: c.muted, fontSize: 11, marginTop: 4 },
-  mobileTrade: { flexDirection: "row", padding: spacing.lg, gap: spacing.md, borderTopWidth: 1, borderTopColor: c.divider },
-  mobileTradeRight: { alignItems: "flex-end", gap: 7 },
-  activityRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, borderTopWidth: 1, borderTopColor: c.divider },
-  activityIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: c.brandSecondary },
-  activityTime: { color: c.muted, fontSize: 11 },
-  toolGrid: { flexDirection: "row", flexWrap: "wrap", padding: spacing.md, gap: spacing.sm },
-  tool: { minWidth: 160, flexGrow: 1, flexBasis: "28%", flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.md, borderRadius: 10, backgroundColor: c.surfaceSecondary },
-  toolText: { color: c.onSurface, fontSize: 12, fontWeight: "700", flex: 1 },
+  rowPressed: { backgroundColor: c.surfaceSecondary },
+  orderColumn: { flex: 1.2, minWidth: 100 },
+  customerColumn: { flex: 1.2, minWidth: 100 },
+  cardColumn: { flex: 1.4, minWidth: 130 },
+  amountColumn: { flex: 1.1, minWidth: 100 },
+  statusColumn: { flex: 1, minWidth: 100 },
+  rowMain: { color: c.onSurface, fontSize: 12, fontWeight: "700" },
+  rowSub: { color: c.muted, fontSize: 10.5, marginTop: 3 },
+  mobileRow: { flexDirection: "row", padding: spacing.lg, gap: spacing.md, borderTopWidth: 1, borderTopColor: c.divider },
+  mobileRowRight: { alignItems: "flex-end", gap: 7 },
+  clearState: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg },
+  clearIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: c.successBg, alignItems: "center", justifyContent: "center" },
+  clearTitle: { color: c.onSurface, fontSize: 12, fontWeight: "800" },
+  attentionRow: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, borderTopWidth: 1, borderTopColor: c.divider },
+  attentionIcon: { width: 34, height: 34, borderRadius: 9, backgroundColor: c.brandSecondary, alignItems: "center", justifyContent: "center" },
+  attentionCount: { minWidth: 28, textAlign: "right", color: c.onSurface, fontSize: 15, fontWeight: "800" },
+  verificationNote: { flexDirection: "row", gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, backgroundColor: c.surfaceSecondary, borderTopWidth: 1, borderTopColor: c.divider },
+  verificationText: { flex: 1, color: c.muted, fontSize: 10.5, lineHeight: 16 },
+  emptyCompact: { minHeight: 72, justifyContent: "center", paddingHorizontal: spacing.lg },
+  activityRow: { minHeight: 60, flexDirection: "row", alignItems: "stretch", gap: spacing.md, paddingHorizontal: spacing.lg },
+  activityMarker: { width: 18, alignItems: "center", position: "relative" },
+  activityDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.brandPrimary, marginTop: 18, zIndex: 1 },
+  activityLine: { position: "absolute", top: 26, bottom: -18, width: 1, backgroundColor: c.border },
+  activityTime: { alignSelf: "center", color: c.muted, fontSize: 10.5, maxWidth: 150, textAlign: "right" },
   pressed: { opacity: 0.72 },
 }));
