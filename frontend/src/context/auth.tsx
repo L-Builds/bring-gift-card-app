@@ -4,7 +4,7 @@ import { setDisplayCurrency } from "@/src/lib/format";
 import { ApiError } from "@/src/api/client";
 import { Platform } from "react-native";
 import * as Linking from "expo-linking";
-import { api, setToken, clearToken, getToken } from "@/src/api/client";
+import { api, setToken, clearToken, getToken, onSessionInvalidated } from "@/src/api/client";
 import { extractSessionId, cleanWebUrl } from "@/src/lib/google-auth";
 
 export type User = {
@@ -158,6 +158,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setBalanceKobo(0);
     setGoogleSignInCompleted(false);
   }, []);
+
+  useEffect(() => onSessionInvalidated(logout), [logout]);
 
   const refresh = useCallback(async () => {
     if (await getToken()) await loadMe();

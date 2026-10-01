@@ -10,6 +10,12 @@ const BASE = apiBaseUrl(process.env.EXPO_PUBLIC_BACKEND_URL, { web: Platform.OS 
 export const TOKEN_KEY = "bgc_auth_token";
 
 let memToken: string | null = null;
+let sessionInvalidatedHandler: (() => void | Promise<void>) | null = null;
+
+export function onSessionInvalidated(handler: () => void | Promise<void>): () => void {
+  sessionInvalidatedHandler = handler;
+  return () => { if (sessionInvalidatedHandler === handler) sessionInvalidatedHandler = null; };
+}
 
 export async function getToken(): Promise<string | null> {
   if (memToken) return memToken;
@@ -40,9 +46,10 @@ export class ApiError extends Error {
 async function request<T>(path: string, init: RequestInit = {}, auth = true): Promise<T> {
   const headers = new Headers(init.headers as any);
   if (!headers.has("Content-Type") && init.body) headers.set("Content-Type", "application/json");
+  let sentToken: string | null = null;
   if (auth) {
-    const token = await getToken();
-    if (token) headers.set("Authorization", `Bearer ${token}`);
+    sentToken = await getToken();
+    if (sentToken) headers.set("Authorization", `Bearer ${sentToken}`);
   }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 35000);
@@ -57,6 +64,11 @@ async function request<T>(path: string, init: RequestInit = {}, auth = true): Pr
   }
   if (!res.ok) {
     const detail = data && (data.detail ?? data.message);
+    if (auth && path !== "/auth/me" && sentToken && res.status === 401 &&
+        (detail === "Invalid or expired session" || detail === "Not authenticated") &&
+        await getToken() === sentToken) {
+      void Promise.resolve(sessionInvalidatedHandler?.()).catch(() => {});
+    }
     if (detail && typeof detail === "object" && !Array.isArray(detail)) {
       throw new ApiError(detail.message || "Request failed", res.status, detail.code || "");
     }

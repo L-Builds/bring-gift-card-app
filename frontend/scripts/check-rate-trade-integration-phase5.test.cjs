@@ -42,6 +42,6 @@ test("backend exact matching uses total face value and preserves legacy fallback
   assert.match(server, /card_country=x\.country, submission_type=x\.submission_type/);
   assert.match(server, /rate = quote\["rate_minor_per_usd"\]/);
   assert.match(schema, /is_active is_headline/);
-  assert.match(schema, /SCHEMA_VERSION = '009_headline_trade_rates'/);
+  assert.match(schema, /SCHEMA_VERSION = '010_apple_us_rates'/);
   assert.match(migration, /card_rates_headline_unique/);
 });

@@ -1,6 +1,7 @@
 """Phase 5 database-backed headline-rate and exact-trade integration checks."""
 import uuid
 import pytest
+from tests.pg_support import s
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -75,3 +76,26 @@ async def test_quote_and_trade_use_same_exact_typed_ranged_rule(http, actors):
     created = trade.json()
     assert created["rate_id"] == rate.json()["id"]
     assert created["expected_payout_kobo"] == 101065 * 50 * 2
+
+
+async def test_legacy_any_rule_preserves_customer_submission_type(http, actors):
+    brand_id = await create_brand(http, actors)
+    rate = await http.post("/api/admin/card-rates", headers=actors[3], json={
+        "brand_id": brand_id, "market_code": "NG", "face_value": 25,
+        "submission_type": "any", "rate_minor_per_usd": 100000,
+    })
+    assert rate.status_code == 200, rate.text
+    quote = await http.post("/api/quotes", headers=actors[2], json={
+        "brand_id": brand_id, "face_value": 25, "quantity": 1,
+        "card_country": "US", "submission_type": "ecode",
+    })
+    assert quote.status_code == 200, quote.text
+    trade = await http.post("/api/trades", headers=actors[2], json={
+        "brand_id": brand_id, "card_value_usd": 25, "quantity": 1,
+        "country": "US", "submission_type": "ecode",
+        "rate_version": quote.json()["rate_version"], "ecode": "TEST-LEGACY-RULE",
+    })
+    assert trade.status_code == 200, trade.text
+    assert trade.json()["submission_type"] == "ecode"
+    stored = await s.db.trades.find_one({"id": trade.json()["id"]})
+    assert stored["submission_type"] == "ecode"

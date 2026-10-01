@@ -1020,6 +1020,9 @@ async def create_trade(x: TradeIn, user: dict = Depends(current_user)):
             "approved_payout_kobo": None, "status": "PENDING_REVIEW",
             "image_paths": x.image_paths, "ecode_encrypted": encrypt(x.ecode.strip()), "notes": x.notes,
             **quote,
+            # A legacy "any" rule may price either form of card. Keep the form
+            # the customer actually submitted in the immutable trade snapshot.
+            "submission_type": x.submission_type,
             "reason": "", "credited": False,
             "status_history": [{"status": "PENDING_REVIEW", "at": ts, "by": "customer", "note": "Submitted for review"}],
             "created_at": ts, "updated_at": ts,

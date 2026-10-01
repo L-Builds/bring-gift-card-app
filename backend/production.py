@@ -394,6 +394,17 @@ class Production:
             return {"providers": [{"id": "manual", "label": "Manual / Company Payout", "adapter": "manual", "enabled": True, "available": True}, *rows],
                 "default": setting.get("default", "manual"), "adapters": list(ADAPTERS)}
 
+        @api.get("/admin/withdrawal-provider-options")
+        async def withdrawal_provider_options(admin=Depends(s.require_staff_scope("withdrawals"))):
+            """Only the payout choices needed by assigned withdrawal workers."""
+            rows = await db.payout_providers.find({"enabled": True},
+                {"_id": 0, "id": 1, "label": 1, "adapter": 1}).to_list(100)
+            return {"providers": [
+                {"id": "manual", "label": "Manual / Company Payout", "enabled": True, "available": True},
+                *[{"id": row["id"], "label": row.get("label") or row["id"],
+                   "enabled": True, "available": row.get("adapter") in ADAPTERS} for row in rows],
+            ]}
+
         @api.post("/admin/payout-providers/{provider_id}")
         async def save_provider(provider_id: str, x: ProviderIn, admin=Depends(s.require_admin)):
             if provider_id == "manual" or not provider_id.isalnum() or len(provider_id) > 40:

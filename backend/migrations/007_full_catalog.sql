@@ -5,7 +5,7 @@ ALTER TABLE brands ADD COLUMN archived_at TIMESTAMPTZ;
 
 WITH desired(name, slug, category, color, aliases, sort_order) AS (
     VALUES
-        ('Apple / iTunes', 'apple-itunes', 'Entertainment', '#111111', ARRAY['apple / itunes','apple/itunes','apple itunes','apple','itunes']::text[], 1),
+        ('Apple / iTunes', 'apple-itunes', 'Entertainment', '#111111', ARRAY['apple / itunes','apple/itunes','apple itunes','apple','apple card','itunes']::text[], 1),
         ('Steam', 'steam', 'Gaming', '#1B2838', ARRAY['steam']::text[], 2),
         ('Razer Gold', 'razer-gold', 'Gaming', '#C89B2C', ARRAY['razer gold','razer']::text[], 3),
         ('Amazon', 'amazon', 'Shopping', '#FF9900', ARRAY['amazon']::text[], 4),

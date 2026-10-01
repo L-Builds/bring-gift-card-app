@@ -42,7 +42,7 @@ async def http():
     try:
         await s.on_start()
         for m in json.loads((Path(__file__).parents[1]/"scripts/website_markets.json").read_text()):
-            await s.db.markets.insert_one(m)
+            await s.db.markets.update_one({"code": m["code"]}, {"$setOnInsert": m}, upsert=True)
         async with AsyncClient(transport=ASGITransport(app=s.app), base_url="http://test") as c:
             yield c
     finally:

@@ -40,7 +40,7 @@ BEGIN
     SELECT id INTO apple_id
     FROM brands
     WHERE lower(coalesce(slug, '')) = 'apple-itunes'
-       OR lower(coalesce(name, '')) IN ('apple / itunes', 'apple/itunes', 'apple itunes', 'apple', 'itunes')
+       OR lower(coalesce(name, '')) IN ('apple / itunes', 'apple/itunes', 'apple itunes', 'apple', 'apple card', 'itunes')
     ORDER BY CASE WHEN lower(coalesce(slug, '')) = 'apple-itunes' THEN 0 ELSE 1 END, sort_order NULLS LAST, id
     LIMIT 1;
 

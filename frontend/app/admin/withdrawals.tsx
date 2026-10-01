@@ -43,7 +43,7 @@ export default function AdminWithdrawals() {
   const [paidItem, setPaidItem] = useState<WD | null>(null);
   const [externalRef, setExternalRef] = useState("");
   const [dispatchItem, setDispatchItem] = useState<WD | null>(null);
-  const providers = useQuery({ queryKey: ["payout-providers"], queryFn: () => api.get<{ providers: { id: string; label: string; enabled: boolean; available: boolean }[] }>("/admin/payout-providers") });
+  const providers = useQuery({ queryKey: ["withdrawal-provider-options"], queryFn: () => api.get<{ providers: { id: string; label: string; enabled: boolean; available: boolean }[] }>("/admin/withdrawal-provider-options") });
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
 

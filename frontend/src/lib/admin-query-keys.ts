@@ -1,4 +1,4 @@
-const ADMIN_QUERY_KEYS = new Set(["payout-providers", "readiness", "denomination-history"]);
+const ADMIN_QUERY_KEYS = new Set(["payout-providers", "withdrawal-provider-options", "readiness", "denomination-history"]);
 
 export function isAdminQueryKey(queryKey: readonly unknown[]): boolean {
   const first = queryKey[0];

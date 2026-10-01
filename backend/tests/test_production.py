@@ -278,10 +278,10 @@ async def test_zero_decimal_trade_receipt_uses_wallet_precision(http,actors):
     brand=await http.post('/api/admin/brands',headers=actors[3],json={'name':'XAF Receipt Card'})
     assert brand.status_code==200,brand.text
     rate=await http.post('/api/admin/card-rates',headers=actors[3],json={
-        'brand_id':brand.json()['id'],'market_code':'CM','face_value':100,'payout_minor':1234})
+        'brand_id':brand.json()['id'],'market_code':'CM','face_value':1,'payout_minor':1234})
     assert rate.status_code==200,rate.text
     submitted=await http.post('/api/trades',headers=actors[2],json={
-        'brand_id':brand.json()['id'],'submission_type':'ecode','card_value_usd':100,
+        'brand_id':brand.json()['id'],'submission_type':'ecode','card_value_usd':1,
         'rate_version':rate.json()['version'],'ecode':'TEST-XAF-CODE'})
     assert submitted.status_code==200,submitted.text
     approved=await http.post(f'/api/admin/trades/{submitted.json()["id"]}/approve',headers=actors[3],json={})

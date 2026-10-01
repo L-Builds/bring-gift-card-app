@@ -170,3 +170,23 @@ def test_every_admin_route_has_server_dependency():
         dependencies = [dependency.call for dependency in route.dependant.dependencies]
         assert any(call in {s.require_admin, s.require_staff} or getattr(call, "__name__", "") == "check"
                    for call in dependencies), route.path
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_withdrawal_worker_can_read_only_payout_choices(http):
+    worker = {
+        "id": uuid.uuid4().hex, "full_name": "Withdrawal Worker",
+        "email": f"withdrawals-{uuid.uuid4().hex}@example.com", "phone": "",
+        "password_hash": s.hash_pw("WorkerSecret!42@admin"), "role": "admin",
+        "staff_role": "worker", "staff_permissions": ["withdrawals"],
+        "disabled": False, "created_at": s.now(), "token_version": 0,
+    }
+    await s.db.users.insert_one(worker)
+    auth = headers(s.make_token(worker))
+    choices = await http.get("/api/admin/withdrawal-provider-options", headers=auth)
+    assert choices.status_code == 200, choices.text
+    assert choices.json()["providers"][0]["id"] == "manual"
+    assert all(set(row) <= {"id", "label", "enabled", "available"}
+               for row in choices.json()["providers"])
+    assert (await http.get("/api/admin/payout-providers", headers=auth)).status_code == 403
+    assert (await http.post("/api/admin/payout-providers/test", headers=auth, json={})).status_code == 403

@@ -135,9 +135,9 @@ export default function Rates() {
       </View>
     </View>
 
-    <FlatList
+    <FlatList<Brand | CardRate>
       data={selectedBrand ? visibleRules : filteredBrands}
-      keyExtractor={(item) => selectedBrand ? (item as CardRate).id : (item as Brand).id}
+      keyExtractor={(item) => item.id}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={[styles.page, (selectedBrand ? visibleRules.length : filteredBrands.length) === 0 && styles.emptyPage]}
       ListHeaderComponent={<>

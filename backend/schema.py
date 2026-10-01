@@ -126,4 +126,4 @@ upload_parts = Table('upload_parts', metadata,
     UniqueConstraint('session_id','part'), CheckConstraint('part BETWEEN 0 AND 3 AND octet_length(data) <= 3145728',name='upload_part_limit'))
 TABLES['upload_parts']=upload_parts
 
-SCHEMA_VERSION = '009_headline_trade_rates'
+SCHEMA_VERSION = '010_apple_us_rates'

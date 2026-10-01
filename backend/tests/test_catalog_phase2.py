@@ -16,7 +16,7 @@ EXPECTED = {
 }
 
 
-async def test_seeded_catalog_exists_inactive_without_fake_rates(http, actors):
+async def test_seeded_catalog_stays_inactive_except_approved_apple_rates(http, actors):
     rows = (await http.get("/api/admin/brands", headers=actors[3])).json()["brands"]
     names = {row["name"] for row in rows}
     # Existing deployments can already contain an alias such as Apple instead of
@@ -25,10 +25,14 @@ async def test_seeded_catalog_exists_inactive_without_fake_rates(http, actors):
     missing = EXPECTED - names
     assert missing <= {"Apple / iTunes"}, missing
     seeded = [row for row in rows if row.get("catalog_seed")]
-    assert seeded
-    assert all(row["is_active"] is False and row["is_popular"] is False for row in seeded)
-    seeded_ids = {row["id"] for row in seeded}
-    assert not await s.db.card_rates.find_one({"brand_id": {"$in": sorted(seeded_ids)}})
+    inactive = [row for row in seeded if row.get("slug") != "apple-itunes"]
+    assert inactive
+    assert all(row["is_active"] is False and row["is_popular"] is False for row in inactive)
+    inactive_ids = {row["id"] for row in inactive}
+    assert not await s.db.card_rates.find_one({"brand_id": {"$in": sorted(inactive_ids)}})
+    apple = next(row for row in rows if row.get("slug") in {"apple-itunes", "apple-card"})
+    assert apple["is_active"] is True and apple["is_popular"] is True
+    assert await s.db.card_rates.count_documents({"brand_id": apple["id"], "card_country": "US"}) == 18
 
 
 async def test_unused_catalog_card_can_be_permanently_deleted_with_rates(http, actors):
