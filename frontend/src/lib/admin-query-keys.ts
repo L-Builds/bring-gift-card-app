@@ -11,6 +11,7 @@ export function isPublicQueryAffectedByAdminWrite(path: string, queryKey: readon
   if (path.startsWith("/admin/brands") || path.startsWith("/admin/card-rates")) {
     return ["brand", "brands", "brand-categories", "rates", "card-rates", "quote"].includes(first);
   }
+  if (path.startsWith("/admin/headline-rates")) return first === "popular-cards";
   if (path.startsWith("/admin/markets")) return ["markets", "card-rates", "quote"].includes(first);
   if (path.startsWith("/admin/legal")) return first === "legal";
   if (path.startsWith("/admin/payout-")) return ["payout-options", "payout-banks"].includes(first);

@@ -76,12 +76,19 @@ async def withdrawal(http, a, amount=7000, key=None):
 
 
 async def trade(http,a):
-    b=await http.post("/api/admin/brands",headers=a[3],json={"name":"Test Card","is_popular":True})
+    b=await http.post("/api/admin/brands",headers=a[3],json={
+        "name":"Test Card","is_popular":True,"countries":[],"submission_types":["physical","ecode"]
+    })
     assert b.status_code==200,b.text
     bid=b.json()["id"]
-    r=await http.post("/api/admin/card-rates",headers=a[3],json={"brand_id":bid,"market_code":"NG","face_value":100,"payout_minor":850000})
-    assert r.status_code==200,r.text
-    body={"brand_id":bid,"submission_type":"ecode","card_value_usd":100,"rate_version":r.json()["version"],"ecode":"PRIVATE-CARD-123456"}
+    configured=await http.post("/api/admin/detailed-rates/country",headers=a[3],json={
+        "brand_id":bid,"market_code":"NG","card_country":"US",
+        "physical_rate_minor_per_unit":8500,"code_rate_minor_per_unit":8500,
+    })
+    assert configured.status_code==200,configured.text
+    code_rate=next(row for row in configured.json()["rates"] if row["submission_type"]=="ecode")
+    body={"brand_id":bid,"submission_type":"ecode","country":"US","card_value_usd":100,
+        "rate_version":code_rate["version"],"ecode":"PRIVATE-CARD-123456"}
     result=await http.post("/api/trades",headers=a[2],json=body)
     assert result.status_code==200,result.text
     return result.json(),body

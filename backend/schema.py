@@ -39,6 +39,18 @@ markets = table('markets', 'code name currency', 'minor_digits', 'is_active', re
 brands = table('brands', 'id name slug category color logo_path', 'rate_kobo_per_usd sort_order', 'is_active is_popular', 'created_at archived_at', required=('id',))
 Index('brands_active_order', brands.c.is_active, brands.c.sort_order)
 
+popular_cards = table('popular_cards', 'brand_id bonus_market_code',
+    'position bonus_amount_minor min_card_value_usd', 'bonus_enabled', 'created_at updated_at',
+    required=('brand_id','position'), constraints=(
+        ForeignKeyConstraint(['brand_id'], ['brands.id'], ondelete='CASCADE'),
+        ForeignKeyConstraint(['bonus_market_code'], ['markets.code']),
+        UniqueConstraint('brand_id', name='popular_cards_brand_unique'),
+        UniqueConstraint('position', name='popular_cards_position_unique'),
+        CheckConstraint('position BETWEEN 1 AND 8', name='popular_cards_position_range'),
+        CheckConstraint('bonus_amount_minor IS NULL OR bonus_amount_minor > 0', name='popular_cards_bonus_amount_positive'),
+        CheckConstraint('min_card_value_usd IS NULL OR min_card_value_usd > 0', name='popular_cards_min_card_value_positive'),
+        CheckConstraint("NOT bonus_enabled OR (bonus_market_code IS NOT NULL AND bonus_market_code <> '' AND bonus_amount_minor IS NOT NULL AND bonus_amount_minor > 0)", name='popular_cards_bonus_complete')))
+
 card_rates = table('card_rates', 'id brand_id market_code card_country submission_type',
     'face_value payout_minor rate_minor_per_usd range_min range_max version', 'is_active is_headline', 'updated_at archived_at',
     required=('id','brand_id','market_code','submission_type','face_value','payout_minor','version'), constraints=(
@@ -52,6 +64,31 @@ Index('card_rates_rule_unique', card_rates.c.brand_id, card_rates.c.market_code,
 Index('card_rates_market_active', card_rates.c.market_code, card_rates.c.is_active)
 Index('card_rates_rule_lookup', card_rates.c.brand_id, card_rates.c.market_code, card_rates.c.card_country, card_rates.c.face_value,
       card_rates.c.submission_type, card_rates.c.is_active)
+
+# Phase 1 rate model cleanup. These are the new current-rate stores. The legacy
+# card_rates table above remains intact for historical compatibility. Live trade
+# pricing has cut over to detailed_rates; historical trades may still reference
+# legacy card_rates ids and keep immutable pricing snapshots.
+headline_rates = table('headline_rates', 'id brand_id market_code',
+    'rate_minor_per_unit version', 'is_active', 'created_at updated_at archived_at',
+    required=('id','brand_id','market_code','rate_minor_per_unit','version','is_active'), constraints=(
+        ForeignKeyConstraint(['brand_id'], ['brands.id'], ondelete='CASCADE'),
+        ForeignKeyConstraint(['market_code'], ['markets.code']),
+        UniqueConstraint('brand_id','market_code', name='headline_rates_card_market_unique'),
+        CheckConstraint('rate_minor_per_unit > 0 AND version > 0', name='headline_rates_positive')))
+Index('headline_rates_market_active', headline_rates.c.market_code, headline_rates.c.is_active)
+
+detailed_rates = table('detailed_rates', 'id brand_id market_code card_country submission_type',
+    'rate_minor_per_unit version', 'is_active', 'created_at updated_at archived_at',
+    required=('id','brand_id','market_code','card_country','submission_type','rate_minor_per_unit','version','is_active'), constraints=(
+        ForeignKeyConstraint(['brand_id'], ['brands.id'], ondelete='CASCADE'),
+        ForeignKeyConstraint(['market_code'], ['markets.code']),
+        UniqueConstraint('brand_id','market_code','card_country','submission_type', name='detailed_rates_card_country_type_unique'),
+        CheckConstraint("btrim(card_country) <> ''", name='detailed_rates_country_present'),
+        CheckConstraint("submission_type IN ('physical','ecode')", name='detailed_rates_submission_type_valid'),
+        CheckConstraint('rate_minor_per_unit > 0 AND version > 0', name='detailed_rates_positive')))
+Index('detailed_rates_lookup', detailed_rates.c.brand_id, detailed_rates.c.market_code, detailed_rates.c.card_country,
+      detailed_rates.c.submission_type, detailed_rates.c.is_active)
 
 trades = table('trades', 'id user_id brand_id order_id status currency market_code rate_id submission_type',
     'card_value_usd quantity rate_kobo_per_usd expected_payout_kobo approved_payout_kobo minor_digits rate_version unit_payout_minor payout_minor',
@@ -126,4 +163,4 @@ upload_parts = Table('upload_parts', metadata,
     UniqueConstraint('session_id','part'), CheckConstraint('part BETWEEN 0 AND 3 AND octet_length(data) <= 3145728',name='upload_part_limit'))
 TABLES['upload_parts']=upload_parts
 
-SCHEMA_VERSION = '010_apple_us_rates'
+SCHEMA_VERSION = '013_trade_rate_cutover'

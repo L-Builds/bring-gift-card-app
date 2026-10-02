@@ -82,8 +82,25 @@ async def test_edit_disable_and_safe_delete_unused_rule(http, actors):
 
 
 async def test_safe_delete_archives_rate_used_by_historical_trade(http, actors):
-    created_trade, _ = await trade(http, actors)
-    rate_id = created_trade["rate_id"]
+    # Historical pre-Phase-6 trades may still reference legacy card_rates ids.
+    brand_id = await _brand(http, actors, "Historical Legacy Card " + uuid.uuid4().hex[:6])
+    legacy = await http.post("/api/admin/card-rates", headers=actors[3], json={
+        "brand_id": brand_id, "market_code": "NG", "face_value": 100,
+        "submission_type": "ecode", "rate_minor_per_usd": 8500, "is_active": True,
+    })
+    assert legacy.status_code == 200, legacy.text
+    rate_id = legacy.json()["id"]
+    trade_id = uuid.uuid4().hex
+    await s.db.trades.insert_one({
+        "id": trade_id, "user_id": actors[0]["id"], "brand_id": brand_id,
+        "order_id": "LEGACY-" + trade_id[:8], "status": "PENDING_REVIEW",
+        "currency": "NGN", "market_code": "NG", "rate_id": rate_id,
+        "submission_type": "ecode", "card_value_usd": 100, "quantity": 1,
+        "rate_kobo_per_usd": 8500, "expected_payout_kobo": 850000,
+        "minor_digits": 2, "rate_version": legacy.json()["version"],
+        "unit_payout_minor": 850000, "payout_minor": 850000,
+        "credited": False,
+    })
     result = await http.delete(f"/api/admin/card-rates/{rate_id}/safe", headers=actors[3])
     assert result.status_code == 200, result.text
     payload = result.json()
@@ -92,23 +109,25 @@ async def test_safe_delete_archives_rate_used_by_historical_trade(http, actors):
     assert stored is not None
     assert stored["is_active"] is False
     assert stored.get("archived_at") is not None
-    historical = await s.db.trades.find_one({"id": created_trade["id"]})
+    historical = await s.db.trades.find_one({"id": trade_id})
     assert historical["rate_id"] == rate_id
 
 
-async def test_legacy_quote_does_not_accidentally_use_typed_or_ranged_rule(http, actors):
+async def test_legacy_quote_does_not_accidentally_use_card_rate_after_cutover(http, actors):
     brand_id = await _brand(http, actors, "Protected Legacy Quote " + uuid.uuid4().hex[:6])
-    advanced = await http.post("/api/admin/card-rates", headers=actors[3], json={
+    legacy = await http.post("/api/admin/card-rates", headers=actors[3], json={
         "brand_id": brand_id,
         "market_code": "NG",
+        "card_country": "US",
         "face_value": 100,
         "submission_type": "physical",
-        "range_min": 300,
-        "range_max": 500,
         "rate_minor_per_usd": 110000,
     })
-    assert advanced.status_code == 200, advanced.text
-    quote = await http.post("/api/quotes", headers=actors[2], json={"brand_id": brand_id, "face_value": 100, "quantity": 1})
+    assert legacy.status_code == 200, legacy.text
+    quote = await http.post("/api/quotes", headers=actors[2], json={
+        "brand_id": brand_id, "face_value": 100, "quantity": 1,
+        "card_country": "US", "submission_type": "physical",
+    })
     assert quote.status_code == 409
     assert "No active rate" in quote.text
 

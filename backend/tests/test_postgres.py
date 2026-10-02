@@ -73,12 +73,16 @@ async def test_two_database_instances_cannot_double_credit(http,actors):
 
 async def test_concurrent_rate_upserts_preserve_versions_and_audit(http,actors):
     t,_=await trade(http,actors)
-    async def save(amount):return await http.post('/api/admin/card-rates',headers=actors[3],json={'brand_id':t['brand_id'],'market_code':'NG','face_value':100,'payout_minor':amount})
-    results=await asyncio.gather(*[save(900000+n) for n in range(5)])
+    async def save(amount):
+        return await http.post('/api/admin/detailed-rates/country',headers=actors[3],json={
+            'brand_id':t['brand_id'],'market_code':'NG','card_country':'US',
+            'physical_rate_minor_per_unit':8500,'code_rate_minor_per_unit':amount})
+    results=await asyncio.gather(*[save(9000+n) for n in range(5)])
     assert all(r.status_code==200 for r in results),[r.text for r in results]
-    assert sorted(r.json()['version'] for r in results)==[2,3,4,5,6]
-    assert await s.db.card_rates.count_documents({'brand_id':t['brand_id']})==1
-    assert await s.db.audit.count_documents({'target':t['rate_id'],'action':'rate.updated'})==6
+    code_versions=sorted(next(row for row in r.json()['rates'] if row['submission_type']=='ecode')['version'] for r in results)
+    assert code_versions==[2,3,4,5,6]
+    assert await s.db.detailed_rates.count_documents({'brand_id':t['brand_id'],'card_country':'US'})==2
+    assert await s.db.audit.count_documents({'target':f"{t['brand_id']}:NG:US",'action':'detailed_rates.updated'})==6
 
 
 async def test_referral_link_is_one_time_under_parallel_requests(http,actors):

@@ -70,10 +70,12 @@ async def test_rejection_releases_once(http,actors):
 
 async def test_rate_changes_propagate_and_stale_quote_fails(http,actors):
     t,body=await trade(http,actors)
-    saved=await http.post("/api/admin/card-rates",headers=actors[3],json={"brand_id":t["brand_id"],"market_code":"NG","face_value":100,"payout_minor":900000})
-    assert saved.status_code==200
-    current=(await http.get(f'/api/card-rates?brand_id={t["brand_id"]}&market_code=NG')).json()
-    assert current["rates"][0]["payout_minor"]==900000
+    saved=await http.post("/api/admin/detailed-rates/country",headers=actors[3],json={
+        "brand_id":t["brand_id"],"market_code":"NG","card_country":"US",
+        "physical_rate_minor_per_unit":8500,"code_rate_minor_per_unit":9000})
+    assert saved.status_code==200,saved.text
+    current=(await http.get(f'/api/detailed-rates?brand_id={t["brand_id"]}&market_code=NG')).json()
+    assert next(r for r in current["detailed_rates"] if r["submission_type"]=="ecode")["rate_minor_per_unit"]==9000
     assert (await http.post("/api/trades",headers=actors[2],json=body)).status_code==409
     original=await s.db.trades.find_one({"id":t["id"]})
     assert original["expected_payout_kobo"]==850000
@@ -83,7 +85,7 @@ async def test_rate_publication_waits_for_trade_submission(http,actors,monkeypat
     t,body=await trade(http,actors)
     inserting=asyncio.Event();release=asyncio.Event();updating=asyncio.Event()
     original_insert=s.db.trades.insert_one
-    original_update=s.db.card_rates.find_one_and_update
+    original_update=s.db.detailed_rates.find_one_and_update
     async def pause_insert(doc,session=None):
         inserting.set()
         await release.wait()
@@ -92,12 +94,13 @@ async def test_rate_publication_waits_for_trade_submission(http,actors,monkeypat
         updating.set()
         return await original_update(*args,**kwargs)
     monkeypatch.setattr(s.db.trades,"insert_one",pause_insert)
-    monkeypatch.setattr(s.db.card_rates,"find_one_and_update",mark_update)
+    monkeypatch.setattr(s.db.detailed_rates,"find_one_and_update",mark_update)
     pending=asyncio.create_task(http.post('/api/trades',headers=actors[2],json=body))
     try:
         await asyncio.wait_for(inserting.wait(),90)
-        publication=asyncio.create_task(http.post('/api/admin/card-rates',headers=actors[3],json={
-            'brand_id':t['brand_id'],'market_code':'NG','face_value':100,'payout_minor':900000}))
+        publication=asyncio.create_task(http.post('/api/admin/detailed-rates/country',headers=actors[3],json={
+            'brand_id':t['brand_id'],'market_code':'NG','card_country':'US',
+            'physical_rate_minor_per_unit':8500,'code_rate_minor_per_unit':9000}))
         await asyncio.wait_for(updating.wait(),90)
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(asyncio.shield(publication),.1)
@@ -107,7 +110,8 @@ async def test_rate_publication_waits_for_trade_submission(http,actors,monkeypat
     assert submitted.status_code==200,submitted.text
     assert changed.status_code==200,changed.text
     assert submitted.json()['expected_payout_kobo']==850000
-    assert changed.json()['version']==body['rate_version']+1
+    code_rate=next(r for r in changed.json()['rates'] if r['submission_type']=='ecode')
+    assert code_rate['version']==body['rate_version']+1
     assert (await http.post('/api/trades',headers=actors[2],json=body)).status_code==409
 
 
@@ -277,12 +281,13 @@ async def test_zero_decimal_trade_receipt_uses_wallet_precision(http,actors):
     await s.db.users.update_one({'id':actors[0]['id']},{'$set':{'currency':'XAF','minor_digits':0,'market_code':'CM'}})
     brand=await http.post('/api/admin/brands',headers=actors[3],json={'name':'XAF Receipt Card'})
     assert brand.status_code==200,brand.text
-    rate=await http.post('/api/admin/card-rates',headers=actors[3],json={
-        'brand_id':brand.json()['id'],'market_code':'CM','face_value':1,'payout_minor':1234})
+    rate=await http.post('/api/admin/detailed-rates/country',headers=actors[3],json={
+        'brand_id':brand.json()['id'],'market_code':'CM','card_country':'US','code_rate_minor_per_unit':1234})
     assert rate.status_code==200,rate.text
+    code_rate=next(r for r in rate.json()['rates'] if r['submission_type']=='ecode')
     submitted=await http.post('/api/trades',headers=actors[2],json={
-        'brand_id':brand.json()['id'],'submission_type':'ecode','card_value_usd':1,
-        'rate_version':rate.json()['version'],'ecode':'TEST-XAF-CODE'})
+        'brand_id':brand.json()['id'],'submission_type':'ecode','country':'US','card_value_usd':1,
+        'rate_version':code_rate['version'],'ecode':'TEST-XAF-CODE'})
     assert submitted.status_code==200,submitted.text
     approved=await http.post(f'/api/admin/trades/{submitted.json()["id"]}/approve',headers=actors[3],json={})
     assert approved.status_code==200,approved.text
@@ -293,10 +298,10 @@ async def test_zero_decimal_trade_receipt_uses_wallet_precision(http,actors):
 
 async def test_disabling_rate_and_card_blocks_quotes(http,actors):
     t,body=await trade(http,actors)
-    assert (await http.delete('/api/admin/card-rates/'+t["rate_id"],headers=actors[3])).status_code==200
-    assert (await http.post('/api/trades',headers=actors[2],json=body)).status_code==409
+    assert (await http.post(f'/api/admin/detailed-rates/{t["brand_id"]}/NG/US/disable',headers=actors[3])).status_code==200
+    assert (await http.post('/api/trades',headers=actors[2],json=body)).status_code in (400,409)
     await s.db.brands.update_one({"id":t["brand_id"]},{"$set":{"is_active":False}})
-    assert not (await http.get('/api/card-rates?brand_id='+t["brand_id"])).json()["rates"]
+    assert not (await http.get(f'/api/detailed-rates?brand_id={t["brand_id"]}&market_code=NG')).json()["detailed_rates"]
 
 
 async def test_provider_send_payload_contracts(monkeypatch):
@@ -326,9 +331,13 @@ async def test_support_attachment_access_is_ticket_scoped(http,actors,monkeypatc
 
 
 async def test_denomination_history_includes_update_and_disable(http,actors):
-    t,_=await trade(http,actors)
-    await http.delete('/api/admin/card-rates/'+t['rate_id'],headers=actors[3])
+    brand=await http.post('/api/admin/brands',headers=actors[3],json={'name':'Legacy History '+uuid.uuid4().hex[:6],'is_active':True})
+    assert brand.status_code==200,brand.text
+    rate=await http.post('/api/admin/card-rates',headers=actors[3],json={
+        'brand_id':brand.json()['id'],'market_code':'NG','face_value':100,'payout_minor':850000})
+    assert rate.status_code==200,rate.text
+    await http.delete('/api/admin/card-rates/'+rate.json()['id'],headers=actors[3])
     rows=(await http.get('/api/admin/denomination-history',headers=actors[3])).json()['changes']
-    related=[r for r in rows if r['target']==t['rate_id']]
+    related=[r for r in rows if r['target']==rate.json()['id']]
     assert {r['action'] for r in related}=={'rate.updated','rate.disabled'}
     assert all(r['rate']['face_value']==100 and r['market']['currency']=='NGN' for r in related)

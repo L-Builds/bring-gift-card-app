@@ -24,25 +24,26 @@ test("catalog uses a desktop management table and editable card workspace", () =
   assert.match(source, /uploadBrandLogo/);
 });
 
-test("rates use a compact card and country workspace with editable rule rows", () => {
+test("rates use the card-specific detailed country workspace", () => {
   const source = read("app/admin/catalog.tsx");
   assert.match(source, /testID="admin-rates-workspace"/);
   assert.match(source, /testID="rate-card-selector"/);
   assert.match(source, /testID="rate-market-selector"/);
-  assert.match(source, />Value</);
-  assert.match(source, />Range</);
-  assert.match(source, />Type</);
-  assert.match(source, />Rate \/ \$1</);
-  assert.match(source, />Status</);
-  assert.match(source, /testID="rate-add"/);
-  assert.match(source, /Total trade range from \(optional\)/);
-  assert.match(source, /Total trade range to \(optional\)/);
-  assert.match(source, /Rate per \$1/);
-  assert.match(source, /rate_minor_per_usd/);
-  assert.match(source, /api\.patch\(`\/admin\/card-rates\/\$\{encodeURIComponent\(rateDraft\.id\)\}`/);
-  assert.match(source, /\/safe`/);
-  assert.match(source, /testID="rates-desktop-table"/);
-  assert.doesNotMatch(source, /Save Denomination Rate/);
+  assert.match(source, /testID="detailed-rate-workspace"/);
+  assert.match(source, />Detailed Card Rates</);
+  assert.match(source, />Countries</);
+  assert.match(source, /testID="detailed-country-add"/);
+  assert.match(source, />Physical</);
+  assert.match(source, />Code</);
+  assert.match(source, />Rate per unit</);
+  assert.match(source, /testID="detailed-physical-rate"/);
+  assert.match(source, /testID="detailed-code-rate"/);
+  assert.match(source, /\/admin\/detailed-rates\/country/);
+  assert.match(source, /Disable Country/);
+  assert.match(source, /Remove Country/);
+  assert.doesNotMatch(source, /Total trade range from \(optional\)/);
+  assert.doesNotMatch(source, /Card value \(USD\)/);
+  assert.doesNotMatch(source, /\/admin\/card-rates/);
 });
 
 test("markets use a desktop table plus add/edit panel while preserving the existing market endpoint", () => {

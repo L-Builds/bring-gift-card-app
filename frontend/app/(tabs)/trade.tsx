@@ -1,4 +1,4 @@
-import { useCardRates } from "@/src/lib/market";
+import { useDetailedRates } from "@/src/lib/market";
 import React, { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, TextInput, Modal, ScrollView } from "react-native";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
@@ -35,11 +35,9 @@ type QuoteData = {
   payout_minor: number;
   unit_payout_minor: number;
   rate_version: number;
-  rate_minor_per_usd: number;
+  rate_minor_per_unit: number;
   card_country: string;
-  submission_type: "any" | SubmissionType;
-  range_min?: number | null;
-  range_max?: number | null;
+  submission_type: SubmissionType;
 };
 
 export default function Trade() {
@@ -50,7 +48,6 @@ export default function Trade() {
   const qc = useQueryClient();
   const { isGuest, user } = useAuth();
   const marketCode = user?.market_code || "NG";
-  const cardRates = useCardRates();
   const { brand_id, card_value_usd, quantity } = useLocalSearchParams<{ brand_id?: string; card_value_usd?: string; quantity?: string }>();
   const lastAppliedBrandId = useRef<string | null>(null);
   const lastAppliedIntent = useRef<string | null>(null);
@@ -107,12 +104,16 @@ export default function Trade() {
     setType((current) => selectedTypes.includes(current) ? current : selectedTypes[0] ?? "physical");
   }, [brand_id, data]);
 
-  const brandRateRows = (cardRates.data?.rates ?? []).filter((rate) => rate.brand_id === brand?.id && rate.is_active);
-  const typeRateRows = brandRateRows.filter((rate) => rate.submission_type === "any" || rate.submission_type === type);
-  const rateCountries = [...new Set(typeRateRows.map((rate) => rate.card_country?.trim().toUpperCase()).filter(Boolean))];
-  const availableCountries = rateCountries.length ? rateCountries : (brand?.countries ?? []);
-  const rateCountryKey = rateCountries.join("|");
-  const quoteCountryReady = rateCountries.length === 0 || !!country;
+  const detailedRates = useDetailedRates(brand?.id ?? "");
+  const activeDetailedRates = (detailedRates.data?.detailed_rates ?? []).filter((rate) => rate.is_active);
+  const configuredRateTypes = [...new Set(activeDetailedRates.map((rate) => rate.submission_type))];
+  const configuredRateTypeKey = configuredRateTypes.sort().join("|");
+  const typeRateRows = activeDetailedRates.filter((rate) => rate.submission_type === type);
+  const availableCountries = [...new Set(typeRateRows
+    .map((rate) => rate.card_country?.trim().toUpperCase())
+    .filter((item): item is string => !!item))];
+  const rateCountryKey = availableCountries.join("|");
+  const quoteCountryReady = !!country && availableCountries.includes(country.trim().toUpperCase());
   const quote = useQuery({
     queryKey: ["quote", brand?.id, value, qty, country, type],
     queryFn: () => api.post<QuoteData>("/quotes", {
@@ -126,11 +127,17 @@ export default function Trade() {
     refetchInterval: 15000,
   });
   const payout = quote.data?.payout_minor ?? 0;
-  const configuredValues = [...new Set(typeRateRows
-    .filter((rate) => !rate.card_country || !country || rate.card_country.toUpperCase() === country.toUpperCase())
-    .map((rate) => rate.face_value))];
   useEffect(() => {
-    if (country && rateCountries.length && !rateCountries.includes(country.toUpperCase())) setCountry("");
+    if (!brand || detailedRates.isLoading || detailedRates.isError || configuredRateTypes.includes(type)) return;
+    const allowedByBrand: SubmissionType[] = brand.submission_types?.length ? brand.submission_types : ["physical", "ecode"];
+    const replacement = allowedByBrand.find((candidate) => configuredRateTypes.includes(candidate));
+    if (replacement) {
+      setType(replacement);
+      setCountry("");
+    }
+  }, [brand?.id, configuredRateTypeKey, detailedRates.isLoading, detailedRates.isError, type]);
+  useEffect(() => {
+    if (country && !availableCountries.includes(country.toUpperCase())) setCountry("");
   }, [country, rateCountryKey]);
   useEffect(()=>{setReviewOpen(false);},[quote.data?.rate_version]);
 
@@ -139,7 +146,10 @@ export default function Trade() {
   if (brandsError || !data) return <ScreenBackground><AppHeader title="Trade" showBell /><QueryErrorView title="Gift cards unavailable" subtitle="We could not load the current card catalog. Please try again before trading." onRetry={() => { void refetchBrands(); }} retrying={brandsRefetching} /></ScreenBackground>;
 
   const supportedTypes = (b: Brand | null): SubmissionType[] => b?.submission_types?.length ? b.submission_types : ["physical", "ecode"];
-  const typeAvailable = (t: SubmissionType) => !brand || supportedTypes(brand).includes(t);
+  const typeAvailable = (t: SubmissionType) => !brand || (
+    supportedTypes(brand).includes(t)
+    && (detailedRates.isLoading || configuredRateTypes.includes(t))
+  );
 
   const chooseType = (next: SubmissionType) => {
     if (!typeAvailable(next)) {
@@ -349,13 +359,6 @@ export default function Trade() {
               />
             </View>
           </View>
-          <View style={styles.quickRow}>
-            {configuredValues.map((v) => (
-              <Pressable key={v} onPress={() => setValue(String(v))} style={[styles.quick, value === String(v) && styles.quickActive]} testID={`trade-quick-${v}`}>
-                <Text style={[styles.quickText, value === String(v) && { color: colors.onBrandPrimary }]}>${v}</Text>
-              </Pressable>
-            ))}
-          </View>
         </View>
 
         <View style={styles.field}>
@@ -377,8 +380,8 @@ export default function Trade() {
             </View>
           </View>
           <View style={styles.rateBox}>
-            <Text style={styles.rateLabel}>Rate</Text>
-            <Text style={styles.rateValue}>{quote.isError ? "Could not load a matching rate" : quote.data ? `${formatNaira(quote.data.rate_minor_per_usd)} per $1${quote.data.range_min != null && quote.data.range_max != null ? ` · Range $${quote.data.range_min}–$${quote.data.range_max}` : ""}` : "Select the card details and value"}</Text>
+            <Text style={styles.rateLabel}>Rate per unit</Text>
+            <Text style={styles.rateValue}>{quote.isError ? "Could not load a matching rate" : quote.data ? formatNaira(quote.data.rate_minor_per_unit) : "Select the card details and value"}</Text>
           </View>
         </View>
         {quote.isError && <PrimaryButton title="Retry quote" variant="secondary" onPress={() => { void quote.refetch(); }} loading={quote.isRefetching} testID="trade-quote-retry" />}
@@ -490,7 +493,7 @@ export default function Trade() {
                 {!!country && <ReviewRow label="Country" valueText={country} />}
                 <ReviewRow label="Card value" valueText={`$${value}`} />
                 <ReviewRow label="Quantity" valueText={String(qty)} />
-                <ReviewRow label="Rate" valueText={quote.data ? `${formatNaira(quote.data.rate_minor_per_usd)} per $1` : ""} />
+                <ReviewRow label="Rate per unit" valueText={quote.data ? formatNaira(quote.data.rate_minor_per_unit) : ""} />
                 <ReviewRow label="Expected payout" valueText={formatNaira(payout)} />
                 <ReviewRow label={type === "physical" ? "Card images" : "E-code"} valueText={type === "physical" ? `${images.length} uploaded` : "Entered securely"} />
                 {type === "ecode" && images.length > 0 && <ReviewRow label="Supporting images" valueText={`${images.length} uploaded`} />}
@@ -531,10 +534,6 @@ const useStyles = makeStyles((colors) => ({
   amountCard: { backgroundColor: colors.surface, borderRadius: radius.xl, padding: spacing.md, gap: spacing.md },
   amountTop: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   amountInput: { fontSize: 14, color: colors.onSurface, paddingVertical: 4, marginTop: 1 },
-  quickRow: { flexDirection: "row", gap: spacing.sm, justifyContent: "flex-end" },
-  quick: { minWidth: 62, height: 38, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.sm },
-  quickActive: { backgroundColor: colors.brandPrimary },
-  quickText: { color: colors.onSurface, fontSize: 13, fontWeight: "600" },
   stepper: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
   stepBtn: { width: 42, height: 42, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary, alignItems: "center", justifyContent: "center" },
   qtyText: { minWidth: 24, textAlign: "center", fontWeight: "800", color: colors.onSurface, fontSize: 16 },

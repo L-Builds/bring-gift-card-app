@@ -85,7 +85,8 @@ async def test_staff_hierarchy_password_rule_and_scope_revocation(http):
     assert (await http.get("/api/admin/support", headers=worker_auth)).status_code == 200
     for path in ("/api/admin/trades", "/api/admin/withdrawals", "/api/admin/users",
                  "/api/admin/staff", "/api/admin/brands", "/api/admin/markets",
-                 "/api/admin/card-rates?brand_id=x", "/api/admin/payout-providers",
+                 "/api/admin/card-rates?brand_id=x", "/api/admin/headline-rates?brand_id=x",
+                 "/api/admin/detailed-rates?brand_id=x", "/api/admin/payout-providers",
                  "/api/admin/readiness"):
         denied = await http.get(path, headers=worker_auth)
         assert denied.status_code == 403, (path, denied.status_code, denied.text)

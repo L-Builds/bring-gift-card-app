@@ -1,4 +1,4 @@
-import { useCardRates, rateLabel } from "@/src/lib/market";
+import { Market, useCardRates } from "@/src/lib/market";
 import React, { useState } from "react";
 import { View, Text, ScrollView, Pressable, RefreshControl, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
@@ -13,8 +13,48 @@ import { BrandIcon } from "@/src/components/brand-icon";
 import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
 import { formatNaira } from "@/src/lib/format";
+import { tradeAuthHref, tradeHref } from "@/src/lib/trade-intent";
 
 type Brand = { id: string; name: string; color: string; rate_kobo_per_usd: number; category: string; has_logo?: boolean; logo_version?: string };
+type PopularBonus = {
+  enabled: boolean;
+  market_code: string;
+  currency: string;
+  minor_digits: number;
+  amount_minor: number;
+  min_card_value_usd?: number | null;
+};
+type HeadlineRate = {
+  id: string;
+  brand_id: string;
+  market_code: string;
+  rate_minor_per_unit: number;
+  version: number;
+  is_active: boolean;
+};
+
+type PopularCard = {
+  position: number;
+  brand: Brand;
+  headline_rate: HeadlineRate;
+  bonus?: PopularBonus | null;
+};
+
+function currencyAmount(minor: number, currency: string, digits: number, trimZeroDecimals = false) {
+  const value = (minor || 0) / 10 ** digits;
+  const showDecimals = trimZeroDecimals && Number.isInteger(value) ? 0 : digits;
+  try {
+    return new Intl.NumberFormat("en", {
+      style: "currency",
+      currency,
+      currencyDisplay: "narrowSymbol",
+      minimumFractionDigits: showDecimals,
+      maximumFractionDigits: showDecimals,
+    }).format(value);
+  } catch {
+    return `${currency} ${value.toFixed(showDecimals)}`;
+  }
+}
 
 export default function Home() {
   const rates = useCardRates();
@@ -28,13 +68,13 @@ export default function Home() {
   const [hideBalance, setHideBalance] = useState(false);
 
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
-    queryKey: ["brands", "popular", marketCode],
-    queryFn: () => api.get<{ brands: Brand[] }>(`/brands?popular=true&market_code=${encodeURIComponent(marketCode)}`, false),
+    queryKey: ["popular-cards", marketCode],
+    queryFn: () => api.get<{ popular_cards: PopularCard[]; market: Market | null }>(`/popular-cards?market_code=${encodeURIComponent(marketCode)}`, false),
   });
   const allBrands = useQuery({
     queryKey: ["brands", "all", marketCode],
     queryFn: () => api.get<{ brands: Brand[] }>(`/brands?market_code=${encodeURIComponent(marketCode)}`, false),
-    enabled: !isError && data?.brands.length === 0,
+    enabled: !isError && data?.popular_cards.length === 0,
   });
 
   const gate = (path: string) => () => {
@@ -42,16 +82,19 @@ export default function Home() {
     else router.push(path as any);
   };
 
-  const onRefresh = async () => {
-    await Promise.all([refetch(), data?.brands.length === 0 ? allBrands.refetch() : Promise.resolve(), rates.refetch(), refresh()]);
+  const openPopularTrade = (brandId: string) => {
+    const intent = { brand_id: brandId };
+    router.push(isGuest ? tradeAuthHref("login", intent) : tradeHref(intent));
   };
 
-  const popularBrands = data?.brands ?? [];
-  const catalogError = popularBrands.length === 0 && (isError || allBrands.isError);
-  const catalogLoading = isLoading || (popularBrands.length === 0 && allBrands.isLoading);
-  const rateText = (brandId: string) => rates.isError && !rates.data
-    ? "Rates unavailable"
-    : rates.isLoading ? "Checking rate…" : rateLabel(brandId, rates.data);
+  const onRefresh = async () => {
+    await Promise.all([refetch(), data?.popular_cards.length === 0 ? allBrands.refetch() : Promise.resolve(), rates.refetch(), refresh()]);
+  };
+
+  const popularCards = data?.popular_cards ?? [];
+  const popularMarket = data?.market ?? rates.data?.market ?? null;
+  const catalogError = popularCards.length === 0 && (isError || allBrands.isError);
+  const catalogLoading = isLoading || (popularCards.length === 0 && allBrands.isLoading);
   const currencyLabel = isGuest
     ? rates.isError && !rates.data ? "Market error" : rates.isLoading ? "Checking market" : rates.data?.market?.currency ?? "No market"
     : undefined;
@@ -106,13 +149,7 @@ export default function Home() {
 
         <View style={styles.sectionCard}>
           <View style={styles.sectionHead}>
-            <View style={styles.sectionTitleRow}>
-              <Ionicons name="flame" size={36} color={colors.brandPrimary} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.sectionTitle}>Popular Gift Cards</Text>
-                <Text style={styles.sectionSub}>Top gift cards traded on Bring Gift Card</Text>
-              </View>
-            </View>
+            <Text style={styles.sectionTitle}>Popular Gift Cards</Text>
             <Pressable onPress={() => router.push("/(tabs)/rates")} style={styles.viewAll} testID="home-view-all">
               <Text style={styles.viewAllText}>View All</Text>
               <Ionicons name="chevron-forward" size={16} color={colors.brandLink} />
@@ -130,37 +167,45 @@ export default function Home() {
                     <Text style={styles.retryText}>Try again</Text>
                   </Pressable>
                 </View>
-              ) : popularBrands.length === 0 ? (
+              ) : popularCards.length === 0 ? (
                 <Text style={styles.noBrands} testID="home-catalog-empty">
                   {allBrands.data?.brands.length ? "No popular gift cards are featured right now. View all cards to browse what's available." : "No gift cards have been published yet."}
                 </Text>
               ) : null}
-              {isError && popularBrands.length > 0 && <Text style={styles.staleNotice}>Could not refresh gift cards. Showing the last loaded list.</Text>}
-              {popularBrands.map((b, i, list) => (
-                <Pressable
-                  key={b.id}
-                  onPress={() => router.push(`/card/${b.id}`)}
-                  style={[styles.brandRow, i < list.length - 1 && styles.brandDivider]}
-                  testID={`home-brand-${b.id}`}
-                >
-                  <BrandIcon brand={b} size={40} />
-                  {compact ? (
-                    <View style={styles.brandContent}>
+              {isError && popularCards.length > 0 && <Text style={styles.staleNotice}>Could not refresh gift cards. Showing the last loaded list.</Text>}
+              {popularCards.map((item, i, list) => {
+                const b = item.brand;
+                const market = popularMarket;
+                const mainRate = market
+                  ? `$1 = ${currencyAmount(item.headline_rate.rate_minor_per_unit, market.currency, market.minor_digits)}`
+                  : "Rate unavailable";
+                return (
+                  <Pressable
+                    key={b.id}
+                    onPress={() => openPopularTrade(b.id)}
+                    style={[styles.brandRow, i < list.length - 1 && styles.brandDivider]}
+                    testID={`home-brand-${b.id}`}
+                  >
+                    <BrandIcon brand={b} size={40} />
+                    <View style={styles.brandNameBlock}>
                       <Text style={styles.brandName} numberOfLines={2}>{b.name}</Text>
-                      <Text style={styles.brandRate} numberOfLines={1}>{rateText(b.id)}</Text>
                     </View>
-                  ) : (
-                    <>
-                      <Text style={[styles.brandName, styles.brandNameDesktop]}>{b.name}</Text>
-                      <View style={styles.brandRight}>
-                        <Text style={styles.brandRate}>{rateText(b.id)}</Text>
-                        <Ionicons name="chevron-forward" size={17} color={colors.muted} />
-                      </View>
-                    </>
-                  )}
-                  {compact && <Ionicons name="chevron-forward" size={17} color={colors.muted} />}
-                </Pressable>
-              ))}
+                    <View style={styles.brandPriceBlock}>
+                      <Text style={styles.brandRate} numberOfLines={1}>{mainRate}</Text>
+                      {item.bonus?.enabled ? (
+                        <View style={styles.bonusBlock} testID={`home-brand-bonus-${b.id}`}>
+                          <Text style={styles.bonusAmount} numberOfLines={1}>
+                            + {currencyAmount(item.bonus.amount_minor, item.bonus.currency, item.bonus.minor_digits, true)} bonus
+                          </Text>
+                          {item.bonus.min_card_value_usd ? (
+                            <Text style={styles.bonusCondition} numberOfLines={1}>${item.bonus.min_card_value_usd} card upward</Text>
+                          ) : null}
+                        </View>
+                      ) : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
             </View>
           )}
         </View>
@@ -249,9 +294,7 @@ const useStyles = makeStyles((colors) => ({
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
   },
-  sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, flex: 1 },
   sectionTitle: { fontSize: 17, fontWeight: "800", color: colors.onSurface },
-  sectionSub: { fontSize: 11.5, color: colors.muted, marginTop: 2 },
   viewAll: { flexDirection: "row", alignItems: "center", gap: 2, marginLeft: spacing.sm },
   viewAllText: { color: colors.brandLink, fontWeight: "700", fontSize: 13.5 },
   brandList: { paddingHorizontal: spacing.lg },
@@ -259,13 +302,15 @@ const useStyles = makeStyles((colors) => ({
   emptyMessage: { alignItems: "center", paddingBottom: spacing.lg },
   retryText: { color: colors.brandLink, fontWeight: "700", padding: spacing.sm },
   staleNotice: { color: colors.muted, fontSize: 12, paddingVertical: spacing.sm },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 57 },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 68, paddingVertical: spacing.sm },
   brandDivider: { borderBottomWidth: 1, borderBottomColor: colors.divider },
-  brandContent: { flex: 1, minWidth: 0, gap: 3, paddingVertical: spacing.sm },
-  brandName: { fontSize: 14.5, fontWeight: "600", color: colors.onSurface },
-  brandNameDesktop: { flex: 1 },
-  brandRight: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  brandRate: { fontSize: 13.5, fontWeight: "600", color: colors.onSurface },
+  brandNameBlock: { flex: 1, minWidth: 0 },
+  brandName: { fontSize: 14.5, fontWeight: "700", color: colors.onSurface },
+  brandPriceBlock: { alignItems: "flex-end", justifyContent: "center", maxWidth: "58%", minWidth: 118 },
+  brandRate: { fontSize: 13.5, fontWeight: "700", color: colors.onSurface, textAlign: "right" },
+  bonusBlock: { marginTop: 3, alignItems: "flex-end" },
+  bonusAmount: { color: colors.brandPrimary, fontSize: 11.5, fontWeight: "700", textAlign: "right" },
+  bonusCondition: { color: colors.muted, fontSize: 10.5, fontWeight: "600", marginTop: 1, textAlign: "right" },
   promo: {
     minHeight: 142,
     borderRadius: radius.xl,

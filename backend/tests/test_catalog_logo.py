@@ -12,20 +12,29 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 async def test_public_catalog_only_lists_tradable_cards(http, actors):
     admin = actors[3]
     created = await http.post("/api/admin/brands", headers=admin,
-        json={"name": "Catalog Readiness Card", "is_active": True, "is_popular": True})
+        json={"name": "Catalog Readiness Card", "is_active": True})
     assert created.status_code == 200, created.text
     brand_id = created.json()["id"]
     assert created.json()["is_tradable"] is False
     assert brand_id not in {b["id"] for b in (await http.get("/api/brands?market_code=NG")).json()["brands"]}
 
-    rate = await http.post("/api/admin/card-rates", headers=admin,
-        json={"brand_id": brand_id, "market_code": "NG", "face_value": 100, "payout_minor": 120000})
-    assert rate.status_code == 200, rate.text
+    detailed = await http.post("/api/admin/detailed-rates/country", headers=admin, json={
+        "brand_id": brand_id, "market_code": "NG", "card_country": "US",
+        "physical_rate_minor_per_unit": 1200,
+    })
+    assert detailed.status_code == 200, detailed.text
+    headline = await http.post("/api/admin/headline-rates", headers=admin, json={
+        "brand_id": brand_id, "market_code": "NG", "rate_minor_per_unit": 1200,
+    })
+    assert headline.status_code == 200, headline.text
+    added = await http.post("/api/admin/popular-cards", headers=admin, json={"brand_id": brand_id})
+    assert added.status_code == 200, added.text
     listed = (await http.get("/api/brands?market_code=NG&popular=true")).json()["brands"]
     assert any(b["id"] == brand_id and b["is_tradable"] for b in listed)
     assert (await http.get(f"/api/brands/{brand_id}?market_code=IN")).status_code == 404
-    settings = {"name": "Catalog Readiness Card", "is_active": True, "is_popular": False}
-    assert (await http.patch(f"/api/admin/brands/{brand_id}", headers=admin, json=settings)).status_code == 200
+    settings = {"name": "Catalog Readiness Card", "is_active": True, "is_popular": True}
+    removed_popular = await http.delete(f"/api/admin/popular-cards/{brand_id}", headers=admin)
+    assert removed_popular.status_code == 200, removed_popular.text
     assert brand_id not in {b["id"] for b in (await http.get("/api/brands?market_code=NG&popular=true")).json()["brands"]}
     assert brand_id in {b["id"] for b in (await http.get("/api/brands?market_code=NG")).json()["brands"]}
     settings["is_active"] = False
@@ -33,7 +42,7 @@ async def test_public_catalog_only_lists_tradable_cards(http, actors):
     assert brand_id not in {b["id"] for b in (await http.get("/api/brands?market_code=NG")).json()["brands"]}
     settings["is_active"] = True
     assert (await http.patch(f"/api/admin/brands/{brand_id}", headers=admin, json=settings)).status_code == 200
-    assert (await http.delete(f'/api/admin/card-rates/{rate.json()["id"]}', headers=admin)).status_code == 200
+    assert (await http.delete(f"/api/admin/detailed-rates/{brand_id}/NG/US", headers=admin)).status_code == 200
     assert brand_id not in {b["id"] for b in (await http.get("/api/brands?market_code=NG")).json()["brands"]}
     admin_list = (await http.get("/api/admin/brands", headers=admin)).json()["brands"]
     entry = next(b for b in admin_list if b["id"] == brand_id)

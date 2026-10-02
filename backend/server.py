@@ -442,6 +442,21 @@ class BrandIn(BaseModel):
     countries: List[str] = []
 
 
+class PopularCardAddIn(BaseModel):
+    brand_id: str = Field(min_length=1, max_length=120)
+
+
+class PopularCardBonusIn(BaseModel):
+    bonus_enabled: bool = False
+    bonus_market_code: Optional[str] = Field(default=None, max_length=16)
+    bonus_amount_minor: Optional[int] = Field(default=None, gt=0, le=9000000000000)
+    min_card_value_usd: Optional[int] = Field(default=None, gt=0, le=1000000)
+
+
+class PopularCardReorderIn(BaseModel):
+    brand_ids: List[str] = Field(min_length=1, max_length=8)
+
+
 # ---------------------------------------------------------------------------
 # Serialization helpers
 # ---------------------------------------------------------------------------
@@ -813,26 +828,30 @@ async def attach_brand_logos(trades: list[dict]) -> None:
 
 
 async def rate_view_brand_ids(market_code: str = "") -> set[str]:
-    """Cards that have at least one active published rate for the payout market.
-
-    This is intentionally broader than tradable_brand_ids: typed/ranged rules may
-    be published on the public Rates page before the later Trade Integration phase
-    teaches the trade flow how to select those exact rules.
-    """
+    """Cards with an active independent headline rate for an active payout market."""
     market_filter: dict = {"code": market_code, "is_active": True} if market_code else {"is_active": True}
     markets = await db.markets.distinct("code", market_filter)
     if not markets:
         return set()
-    ids = await db.card_rates.distinct("brand_id", {
-        "market_code": {"$in": markets}, "is_active": True,
-        "face_value": {"$gt": 0}, "payout_minor": {"$gt": 0},
+    ids = await db.headline_rates.distinct("brand_id", {
+        "market_code": {"$in": markets}, "is_active": True, "archived_at": None,
+        "rate_minor_per_unit": {"$gt": 0},
     })
     return set(ids)
 
 
 async def tradable_brand_ids(market_code: str = "") -> set[str]:
-    """A listed card needs an active payout market and at least one usable rate rule."""
-    return await rate_view_brand_ids(market_code)
+    """Cards with at least one active detailed country/type rate for an active market."""
+    market_filter: dict = {"code": market_code, "is_active": True} if market_code else {"is_active": True}
+    markets = await db.markets.distinct("code", market_filter)
+    if not markets:
+        return set()
+    ids = await db.detailed_rates.distinct("brand_id", {
+        "market_code": {"$in": markets}, "is_active": True, "archived_at": None,
+        "submission_type": {"$in": ["physical", "ecode"]},
+        "rate_minor_per_unit": {"$gt": 0},
+    })
+    return set(ids)
 
 
 @api.get("/brands")
@@ -840,17 +859,88 @@ async def list_brands(popular: bool = False, category: str = "", q: str = "", ma
     ids = await (rate_view_brand_ids(market_code) if purpose == "rates" else tradable_brand_ids(market_code))
     if not ids:
         return {"brands": []}
+    popular_order: list[str] = []
     query: dict = {"is_active": True, "id": {"$in": sorted(ids)}}
     if popular:
-        query["is_popular"] = True
+        popular_rows = await db.popular_cards.find({}, {"_id": 0}).sort("position", 1).to_list(8)
+        popular_order = [row["brand_id"] for row in popular_rows]
+        if not popular_order:
+            return {"brands": []}
+        query["id"] = {"$in": [brand_id for brand_id in popular_order if brand_id in ids]}
     if category and category.lower() != "all":
         query["category"] = category
     if q:
         query["name"] = {"$regex": re.escape(q), "$options": "i"}
     cur = db.brands.find(query, {"_id": 0}).sort("sort_order", 1)
     brands = await cur.to_list(500)
+    if popular:
+        positions = {brand_id: index for index, brand_id in enumerate(popular_order)}
+        brands.sort(key=lambda brand: positions.get(brand["id"], 999))
     return {"brands": [brand_response(b, tradable=True) for b in brands
                        if b.get("submission_types", ["physical", "ecode"])][:200]}
+
+
+@api.get("/popular-cards")
+async def public_popular_cards(market_code: str = ""):
+    """Curated Home Popular Gift Cards for guests and signed-in customers.
+
+    The displayed main rate always comes from the admin-selected headline rate
+    for the requested payout market. Optional bonus presentation data comes
+    from the dedicated Popular Gift Cards collection.
+    """
+    code = market_code.strip().upper()
+    market_query = {"code": code, "is_active": True} if code else {"is_active": True}
+    market = await db.markets.find_one(market_query, {"_id": 0})
+    if not market:
+        return {"popular_cards": [], "market": None}
+
+    rows = await db.popular_cards.find({}, {"_id": 0}).sort("position", 1).to_list(8)
+    tradable_ids = await tradable_brand_ids(market["code"])
+    items = []
+    for row in rows:
+        brand = await db.brands.find_one({"id": row["brand_id"], "is_active": True}, {"_id": 0})
+        if not brand or brand.get("archived_at") or row["brand_id"] not in tradable_ids:
+            continue
+        headline = await db.headline_rates.find_one({
+            "brand_id": row["brand_id"],
+            "market_code": market["code"],
+            "is_active": True,
+        }, {"_id": 0})
+        if not headline:
+            continue
+
+        bonus = None
+        if row.get("bonus_enabled") and row.get("bonus_market_code") and row.get("bonus_amount_minor"):
+            bonus_market = await db.markets.find_one({
+                "code": row["bonus_market_code"],
+                "is_active": True,
+            }, {"_id": 0})
+            if bonus_market:
+                bonus = {
+                    "enabled": True,
+                    "market_code": bonus_market["code"],
+                    "currency": bonus_market["currency"],
+                    "minor_digits": bonus_market.get("minor_digits", 2),
+                    "amount_minor": row["bonus_amount_minor"],
+                    "min_card_value_usd": row.get("min_card_value_usd"),
+                }
+
+        items.append({
+            "position": row["position"],
+            "brand": brand_response(brand, tradable=True),
+            "headline_rate": headline,
+            "bonus": bonus,
+        })
+
+    return {
+        "popular_cards": items,
+        "market": {
+            "code": market["code"],
+            "name": market["name"],
+            "currency": market["currency"],
+            "minor_digits": market.get("minor_digits", 2),
+        },
+    }
 
 
 @api.get("/brands/{brand_id}")
@@ -983,15 +1073,17 @@ async def create_trade(x: TradeIn, user: dict = Depends(current_user)):
     subcategories = brand.get("subcategories") or []
     if subcategories and x.subcategory not in subcategories:
         raise HTTPException(400, "Selected card type / sub-category is not available")
-    countries = brand.get("countries") or []
-    if countries and x.country not in countries:
-        market_code = user.get("market_code", "NG")
-        published_country = await db.card_rates.find_one({
-            "brand_id": brand["id"], "market_code": market_code,
-            "card_country": x.country.strip().upper(), "is_active": True,
-        }, {"id": 1})
-        if not published_country:
-            raise HTTPException(400, "Selected country / region is not available for this card")
+    country = x.country.strip().upper()
+    if not country:
+        raise HTTPException(400, "Select the card country / region")
+    market_code = user.get("market_code", "NG")
+    published_country_type = await db.detailed_rates.find_one({
+        "brand_id": brand["id"], "market_code": market_code,
+        "card_country": country, "submission_type": x.submission_type,
+        "is_active": True, "archived_at": None,
+    }, {"id": 1})
+    if not published_country_type:
+        raise HTTPException(400, "Selected country / region and card type are not available for this card")
     if x.submission_type == "physical" and not x.image_paths:
         raise HTTPException(400, "Please upload at least one clear image of the card")
     if x.submission_type == "ecode" and not x.ecode.strip():
@@ -1008,13 +1100,13 @@ async def create_trade(x: TradeIn, user: dict = Depends(current_user)):
         if quote["rate_version"] != x.rate_version:
             raise HTTPException(409, "Rate changed. Refresh the quote and review before submitting.")
         payout = quote["payout_minor"]
-        rate = quote["rate_minor_per_usd"]
+        rate = quote["rate_minor_per_unit"]
         ts = now()
         trade = {
             "id": new_id(), "order_id": order_ref("BGC"), "user_id": user["id"],
             "brand_id": brand["id"], "brand_name": brand["name"], "brand_color": brand.get("color", "#1F5AF6"),
             "category": brand.get("category", ""), "submission_type": x.submission_type,
-            "subcategory": x.subcategory, "country": x.country,
+            "subcategory": x.subcategory, "country": country,
             "card_value_usd": x.card_value_usd, "quantity": x.quantity,
             "rate_kobo_per_usd": rate, "expected_payout_kobo": payout,
             "approved_payout_kobo": None, "status": "PENDING_REVIEW",
@@ -1772,11 +1864,159 @@ async def admin_brands(admin: dict = Depends(require_admin)):
                        for b in await cur.to_list(300)]}
 
 
+async def _popular_admin_row(row: dict, tradable_ids: set[str]) -> dict:
+    brand = await db.brands.find_one({"id": row["brand_id"]}, {"_id": 0})
+    if not brand:
+        return {**row, "brand": None, "headline_rates": [], "bonus_market": None}
+    active_market_codes = set(await db.markets.distinct("code", {"is_active": True}))
+    headlines = await db.headline_rates.find({
+        "brand_id": row["brand_id"], "is_active": True,
+        "market_code": {"$in": sorted(active_market_codes)},
+    }, {"_id": 0}).sort("market_code", 1).to_list(50)
+    bonus_market = None
+    if row.get("bonus_market_code"):
+        bonus_market = await db.markets.find_one({"code": row["bonus_market_code"]}, {"_id": 0})
+    return {
+        **{k: v for k, v in row.items() if k != "_id"},
+        "brand": brand_response(brand, tradable=brand.get("is_active", False) and brand["id"] in tradable_ids),
+        "headline_rates": headlines,
+        "bonus_market": bonus_market,
+    }
+
+
+@api.get("/admin/popular-cards")
+async def admin_popular_cards(admin: dict = Depends(require_admin)):
+    rows = await db.popular_cards.find({}, {"_id": 0}).sort("position", 1).to_list(8)
+    tradable = await tradable_brand_ids()
+    return {"popular_cards": [await _popular_admin_row(row, tradable) for row in rows], "max_items": 8}
+
+
+@api.post("/admin/popular-cards")
+async def admin_add_popular_card(x: PopularCardAddIn, admin: dict = Depends(require_admin)):
+    brand = await db.brands.find_one({"id": x.brand_id})
+    if not brand or brand.get("archived_at"):
+        raise HTTPException(404, "Catalog card not found")
+    if not brand.get("is_active"):
+        raise HTTPException(409, "Activate this catalog card before adding it to Popular Gift Cards")
+    if x.brand_id not in await tradable_brand_ids():
+        raise HTTPException(409, "Set an active trading rate for this card before adding it to Popular Gift Cards")
+    active_markets = set(await db.markets.distinct("code", {"is_active": True}))
+    headline = await db.headline_rates.find_one({
+        "brand_id": x.brand_id, "is_active": True,
+        "market_code": {"$in": sorted(active_markets)},
+    }) if active_markets else None
+    if not headline:
+        raise HTTPException(409, "Set an active headline/display rate for this card before adding it to Popular Gift Cards")
+
+    async def add(session):
+        existing = await db.popular_cards.find_one({"brand_id": x.brand_id}, session=session, for_update=True)
+        if existing:
+            return existing
+        cursor = db.popular_cards.find({}, session=session).sort("position", 1)
+        cursor.for_update = True
+        current = await cursor.to_list(8)
+        if len(current) >= 8:
+            raise HTTPException(409, "Popular Gift Cards can contain at most 8 cards")
+        row = {
+            "_id": "popular_" + x.brand_id,
+            "brand_id": x.brand_id,
+            "position": len(current) + 1,
+            "bonus_enabled": False,
+            "bonus_market_code": None,
+            "bonus_amount_minor": None,
+            "min_card_value_usd": None,
+            "created_at": now(),
+            "updated_at": now(),
+        }
+        try:
+            await db.popular_cards.insert_one(row, session=session)
+        except DuplicateKeyError as exc:
+            raise HTTPException(409, "Popular Gift Cards changed at the same time. Refresh and try again") from exc
+        await db.brands.update_one({"id": x.brand_id}, {"$set": {"is_popular": True}}, session=session)
+        await db.audit.insert_one({"actor": admin["id"], "action": "popular_card.added", "target": x.brand_id, "at": now()}, session=session)
+        return row
+
+    row = await db.transaction(add)
+    return await _popular_admin_row(row, await tradable_brand_ids())
+
+
+@api.patch("/admin/popular-cards/{brand_id}")
+async def admin_update_popular_card(brand_id: str, x: PopularCardBonusIn, admin: dict = Depends(require_admin)):
+    row = await db.popular_cards.find_one({"brand_id": brand_id})
+    if not row:
+        raise HTTPException(404, "Popular card not found")
+    market_code = (x.bonus_market_code or "").strip().upper() or None
+    if x.bonus_enabled:
+        if not market_code or x.bonus_amount_minor is None:
+            raise HTTPException(422, "Choose an active bonus currency and enter a bonus amount")
+        market = await db.markets.find_one({"code": market_code, "is_active": True})
+        if not market:
+            raise HTTPException(422, "Choose a currency from an active market")
+    elif market_code and not await db.markets.find_one({"code": market_code, "is_active": True}):
+        raise HTTPException(422, "Choose a currency from an active market")
+    changes = {
+        "bonus_enabled": x.bonus_enabled,
+        "bonus_market_code": market_code,
+        "bonus_amount_minor": x.bonus_amount_minor,
+        "min_card_value_usd": x.min_card_value_usd,
+        "updated_at": now(),
+    }
+    await db.popular_cards.update_one({"brand_id": brand_id}, {"$set": changes})
+    await db.audit.insert_one({"actor": admin["id"], "action": "popular_card.updated", "target": brand_id, "at": now()})
+    saved = await db.popular_cards.find_one({"brand_id": brand_id}, {"_id": 0})
+    return await _popular_admin_row(saved, await tradable_brand_ids())
+
+
+@api.post("/admin/popular-cards/reorder")
+async def admin_reorder_popular_cards(x: PopularCardReorderIn, admin: dict = Depends(require_admin)):
+    if len(set(x.brand_ids)) != len(x.brand_ids):
+        raise HTTPException(422, "Popular card order cannot contain duplicates")
+
+    async def reorder(session):
+        cursor = db.popular_cards.find({}, session=session).sort("position", 1)
+        cursor.for_update = True
+        current = await cursor.to_list(8)
+        current_ids = [row["brand_id"] for row in current]
+        if set(current_ids) != set(x.brand_ids) or len(current_ids) != len(x.brand_ids):
+            raise HTTPException(409, "Popular Gift Cards changed. Refresh before reordering")
+        if len(current_ids) > 8:
+            raise HTTPException(409, "Popular Gift Cards can contain at most 8 cards")
+        if not current_ids:
+            return
+        by_brand = {row["brand_id"]: row for row in current}
+        await db.popular_cards.delete_many({}, session=session)
+        for position, item_brand_id in enumerate(x.brand_ids, start=1):
+            row = dict(by_brand[item_brand_id])
+            row.pop("_id", None)
+            row["_id"] = "popular_" + item_brand_id
+            row["position"] = position
+            row["updated_at"] = now()
+            await db.popular_cards.insert_one(row, session=session)
+        await db.audit.insert_one({"actor": admin["id"], "action": "popular_cards.reordered", "target": ",".join(x.brand_ids), "at": now()}, session=session)
+
+    await db.transaction(reorder)
+    return await admin_popular_cards(admin)
+
+
+@api.delete("/admin/popular-cards/{brand_id}")
+async def admin_remove_popular_card(brand_id: str, admin: dict = Depends(require_admin)):
+    async def remove(session):
+        if not await _remove_popular_membership(brand_id, session):
+            raise HTTPException(404, "Popular card not found")
+        await db.audit.insert_one({"actor": admin["id"], "action": "popular_card.removed", "target": brand_id, "at": now()}, session=session)
+    await db.transaction(remove)
+    return {"ok": True}
+
+
 @api.post("/admin/brands")
 async def admin_create_brand(x: BrandIn, admin: dict = Depends(require_admin)):
     count = await db.brands.count_documents({})
+    payload = x.model_dump()
+    # Popular membership is managed only through /admin/popular-cards so the
+    # collection order, max-8 rule and bonus settings cannot drift.
+    payload["is_popular"] = False
     b = {"id": new_id(), "slug": x.name.lower().replace(" ", "-"), "sort_order": count + 1,
-         "created_at": now(), **x.model_dump()}
+         "created_at": now(), **payload}
     await db.brands.insert_one(b)
     return brand_response(b, tradable=False)
 
@@ -1786,7 +2026,9 @@ async def admin_update_brand(brand_id: str, x: BrandIn, admin: dict = Depends(re
     old = await db.brands.find_one({"id": brand_id})
     if not old:
         raise HTTPException(404, "Brand not found")
-    changes: dict = {"$set": x.model_dump()}
+    payload = x.model_dump()
+    payload["is_popular"] = bool(await db.popular_cards.find_one({"brand_id": brand_id}))
+    changes: dict = {"$set": payload}
     # Explicitly re-activating an archived catalog card restores it to normal
     # management state. It still remains invisible to customers until a usable
     # active rate exists.
@@ -1802,6 +2044,20 @@ async def admin_update_brand(brand_id: str, x: BrandIn, admin: dict = Depends(re
     return brand_response(saved, tradable=saved["is_active"] and brand_id in await tradable_brand_ids())
 
 
+async def _remove_popular_membership(brand_id: str, session) -> bool:
+    row = await db.popular_cards.find_one({"brand_id": brand_id}, session=session, for_update=True)
+    if not row:
+        return False
+    removed_position = int(row["position"])
+    await db.popular_cards.delete_many({"brand_id": brand_id}, session=session)
+    await db.brands.update_one({"id": brand_id}, {"$set": {"is_popular": False}}, session=session)
+    later = db.popular_cards.find({"position": {"$gt": removed_position}}, session=session).sort("position", 1)
+    later.for_update = True
+    for item in await later.to_list(8):
+        await db.popular_cards.update_one({"brand_id": item["brand_id"]}, {"$set": {"position": int(item["position"]) - 1, "updated_at": now()}}, session=session)
+    return True
+
+
 @api.delete("/admin/brands/{brand_id}")
 async def admin_delete_or_archive_brand(brand_id: str, admin: dict = Depends(require_admin)):
     brand = await db.brands.find_one({"id": brand_id})
@@ -1811,11 +2067,18 @@ async def admin_delete_or_archive_brand(brand_id: str, admin: dict = Depends(req
     if historical_trades:
         async def archive(session):
             archived_at = now()
+            await _remove_popular_membership(brand_id, session)
             await db.brands.update_one({"id": brand_id}, {"$set": {
                 "is_active": False, "is_popular": False, "archived_at": archived_at,
             }}, session=session)
             await db.card_rates.update_many({"brand_id": brand_id, "is_active": True}, {"$set": {
                 "is_active": False, "archived_at": archived_at,
+            }}, session=session)
+            await db.headline_rates.update_many({"brand_id": brand_id, "is_active": True}, {"$set": {
+                "is_active": False, "archived_at": archived_at, "updated_at": archived_at,
+            }}, session=session)
+            await db.detailed_rates.update_many({"brand_id": brand_id, "is_active": True}, {"$set": {
+                "is_active": False, "archived_at": archived_at, "updated_at": archived_at,
             }}, session=session)
             await db.audit.insert_one({"actor": admin["id"], "action": "brand.archived",
                 "target": brand_id, "at": archived_at}, session=session)
@@ -1825,7 +2088,10 @@ async def admin_delete_or_archive_brand(brand_id: str, admin: dict = Depends(req
                 "brand": brand_response(saved, tradable=False)}
 
     async def remove(session):
+        await _remove_popular_membership(brand_id, session)
         await db.card_rates.delete_many({"brand_id": brand_id}, session=session)
+        await db.headline_rates.delete_many({"brand_id": brand_id}, session=session)
+        await db.detailed_rates.delete_many({"brand_id": brand_id}, session=session)
         await db.rate_changes.delete_many({"brand_id": brand_id}, session=session)
         await db.brands.delete_many({"id": brand_id}, session=session)
         await db.audit.insert_one({"actor": admin["id"], "action": "brand.deleted",
