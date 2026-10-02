@@ -352,3 +352,4 @@ async def test_denomination_history_includes_update_and_disable(http,actors):
     related=[r for r in rows if r['target']==rate.json()['id']]
     assert {r['action'] for r in related}=={'rate.updated','rate.disabled'}
     assert all(r['rate']['face_value']==100 and r['market']['currency']=='NGN' for r in related)
+    assert all(r['actor_name']==actors[1]['full_name'] for r in related)

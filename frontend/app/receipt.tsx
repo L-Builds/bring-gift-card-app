@@ -36,7 +36,7 @@ export default function ReceiptScreen() {
   });
 
   const textVersion = (r: Receipt) =>
-    [`${r.company.name} — ${r.title}`, `Receipt ${r.receipt_no}`, `${r.total_label}: ${formatMoney(r.total_kobo,r.currency,r.minor_digits)}`,
+    [`${r.company.name}: ${r.title}`, `Receipt ${r.receipt_no}`, `${r.total_label}: ${formatMoney(r.total_kobo,r.currency,r.minor_digits)}`,
       ...r.lines.map((l) => `${l.label}: ${l.value}`), `Completed: ${formatDateTime(r.completed_at)}`, `Verification: ${r.verification_code}`].join("\n");
 
   const capture = async () => {

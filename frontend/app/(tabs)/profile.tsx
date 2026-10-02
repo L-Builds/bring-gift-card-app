@@ -39,7 +39,7 @@ export default function Profile() {
   );
 
   const accountsLabel = acc?.accounts?.length ? `${acc.accounts.length} saved` : "Add account";
-  const appVersion = Constants.expoConfig?.version ?? "—";
+  const appVersion = Constants.expoConfig?.version;
 
   return (
     <ScreenBackground>
@@ -83,7 +83,7 @@ export default function Profile() {
         )}
 
         <View style={styles.group}>
-          <Row icon="information-circle" label="App Version" right={<Text style={styles.version}>v{appVersion}</Text>} />
+          <Row icon="information-circle" label="App Version" right={<Text style={styles.version}>{appVersion ? `v${appVersion}` : "Unavailable"}</Text>} />
           <Row icon="log-out" label="Log Out" danger onPress={async () => { await logout(); router.replace("/"); }} last />
         </View>
       </ScrollView>
@@ -101,7 +101,7 @@ export default function Profile() {
             ].map(([k, v]) => (
               <View key={k} style={styles.detailRow}>
                 <Text style={styles.detailKey}>{k}</Text>
-                <Text style={styles.detailVal}>{v || "—"}</Text>
+                <Text style={styles.detailVal}>{v || "Not provided"}</Text>
               </View>
             ))}
           </Pressable>

@@ -51,7 +51,7 @@ export default function AdminKycReview() {
     setBusy(true);
     try {
       await api.post(`/admin/kyc/${id}/approve`);
-      toast.show("Identity verified — customer notified", "success");
+      toast.show("Identity verified. Customer notified.", "success");
       await done();
     } catch (e) {
       toast.show(e instanceof ApiError ? e.message : "Action failed", "error");
@@ -65,7 +65,7 @@ export default function AdminKycReview() {
     setBusy(true);
     try {
       await api.post(`/admin/kyc/${id}/reject`, { reason: reason.trim() });
-      toast.show("Submission rejected — customer notified", "success");
+      toast.show("Submission rejected. Customer notified.", "success");
       setRejecting(false);
       await done();
     } catch (e) {
@@ -103,7 +103,7 @@ export default function AdminKycReview() {
             </View>
             <Row label="Account name" value={data.customer.full_name} />
             <Row label="Email" value={data.customer.email} />
-            <Row label="Phone" value={data.customer.phone || "—"} />
+            <Row label="Phone" value={data.customer.phone || "Not provided"} />
             <Row label="Country" value={data.customer.country} />
           </Pressable>
         )}

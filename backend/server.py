@@ -643,7 +643,7 @@ async def change_password(x: PasswordChangeIn, user: dict = Depends(current_user
         if verify_pw(x.new_password, account["password_hash"]):
             raise HTTPException(422, "Choose a new password that is different from the current password")
         if account.get("role") == "admin" and not valid_admin_password(x.new_password):
-            raise HTTPException(422, "Admin password must be 12–72 UTF-8 bytes and end with @admin")
+            raise HTTPException(422, "Admin password must be 12 to 72 UTF-8 bytes and end with @admin")
 
         updated = await db.users.find_one_and_update(
             {"id": account["id"]},
@@ -791,7 +791,7 @@ async def reset_confirm(x: ResetConfirmIn):
         if not account:
             raise HTTPException(400, "Invalid or expired reset token")
         if account.get("role") == "admin" and not valid_admin_password(x.password):
-            raise HTTPException(422, "Admin password must be 12–72 UTF-8 bytes and end with @admin")
+            raise HTTPException(422, "Admin password must be 12 to 72 UTF-8 bytes and end with @admin")
         await db.users.update_one({"id": doc["user_id"]}, {"$set": {"password_hash": hashed},
             "$inc": {"token_version": 1}}, session=session)
     await money.transaction(run)
@@ -1722,7 +1722,7 @@ async def admin_create_staff(x: StaffCreateIn, admin: dict = Depends(require_adm
     if staff_role(admin) == "manager" and x.staff_role != "worker":
         raise HTTPException(403, "Only the General Manager can create managers")
     if not valid_admin_password(x.password):
-        raise HTTPException(422, "Admin password must be 12–72 UTF-8 bytes and end with @admin")
+        raise HTTPException(422, "Admin password must be 12 to 72 UTF-8 bytes and end with @admin")
     full_name = x.full_name.strip()
     if len(full_name) < 2:
         raise HTTPException(422, "Staff name is required")
@@ -1765,7 +1765,7 @@ async def admin_update_staff(staff_id: str, x: StaffUpdateIn, admin: dict = Depe
         changes["staff_permissions"] = sorted(set(x.staff_permissions))
     if x.password is not None:
         if not valid_admin_password(x.password):
-            raise HTTPException(422, "Admin password must be 12–72 UTF-8 bytes and end with @admin")
+            raise HTTPException(422, "Admin password must be 12 to 72 UTF-8 bytes and end with @admin")
         changes["password_hash"] = hash_pw(x.password)
     if not changes:
         raise HTTPException(422, "Choose a staff setting to update")

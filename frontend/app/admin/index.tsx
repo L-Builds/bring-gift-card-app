@@ -42,6 +42,20 @@ type RateActivity = {
   market?: { name: string; currency: string; minor_digits: number };
   rate?: { face_value: number; payout_minor: number };
 };
+
+function rateActionLabel(action: string) {
+  return action === "rate.disabled" ? "disabled"
+    : action === "rate.archived" ? "archived"
+    : action === "rate.deleted" ? "removed" : "updated";
+}
+
+function rateActivityDetail(change: RateActivity) {
+  if (!change.rate) return change.market?.name || "Market unavailable";
+  const payout = change.market && typeof change.rate.payout_minor === "number"
+    ? formatMoney(change.rate.payout_minor, change.market.currency, change.market.minor_digits)
+    : "Payout unavailable";
+  return `${change.market?.name || "Market"} · $${change.rate.face_value} card · ${payout} payout`;
+}
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 type Scope = "trades" | "withdrawals" | "support" | "customers";
 type QueueItem = {
@@ -250,7 +264,7 @@ export default function AdminHome() {
 
       {management && <View style={styles.sectionSurface} testID="admin-recent-activity">
         <View style={styles.sectionBar}>
-          <View style={{ flex: 1 }}><Text style={styles.sectionTitle}>Recent activity</Text><Text style={styles.sectionHint}>Latest catalog rate changes recorded by the system.</Text></View>
+          <View style={{ flex: 1 }}><Text style={styles.sectionTitle}>Recent activity</Text><Text style={styles.sectionHint}>Recent changes to earlier per-card denomination rates.</Text></View>
           <Pressable onPress={() => router.push("/admin/rate-history")} accessibilityRole="link" accessibilityLabel="View rate history" style={styles.textLink}><Text style={styles.linkText}>Rate history</Text><Ionicons name="arrow-forward" size={14} color={colors.brandPrimary} /></Pressable>
         </View>
         {activity.isLoading && !activity.data ? <View style={styles.loadingRow}><ActivityIndicator color={colors.brandPrimary} /><Text style={styles.sectionHint}>Loading activity…</Text></View>
@@ -259,8 +273,8 @@ export default function AdminHome() {
           : activity.data.changes.slice(0, 5).map((change, index) => <View key={`${change.target}:${change.version}:${index}`} style={styles.activityRow}>
             <View style={styles.activityMarker}><View style={styles.activityDot} />{index < Math.min(4, activity.data.changes.length - 1) && <View style={styles.activityLine} />}</View>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.rowMain}>{change.brand_name} · {change.action === "rate.disabled" ? "Rate disabled" : "Rate updated"}</Text>
-              <Text style={styles.rowSub}>{change.market?.name || "Market"}{change.rate ? ` · $${change.rate.face_value} → ${formatMoney(change.rate.payout_minor, change.market?.currency || "NGN", change.market?.minor_digits ?? 2)}` : ""}</Text>
+              <Text style={styles.rowMain}>{change.brand_name} · Rate {rateActionLabel(change.action)}</Text>
+              <Text style={styles.rowSub}>{rateActivityDetail(change)}</Text>
             </View>
             <Text style={styles.activityTime}>{formatDateTime(change.at)}</Text>
           </View>)}

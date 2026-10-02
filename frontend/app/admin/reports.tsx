@@ -28,6 +28,18 @@ type Change = {
 };
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
+function rateAction(action: string) {
+  return action === "rate.disabled" ? "Disabled"
+    : action === "rate.archived" ? "Archived"
+    : action === "rate.deleted" ? "Removed" : "Updated";
+}
+
+function recordedPayout(change: Change) {
+  if (!change.rate) return "Rate details unavailable";
+  if (!change.market || typeof change.rate.payout_minor !== "number") return `$${change.rate.face_value} card · Payout unavailable`;
+  return `$${change.rate.face_value} card · ${formatMoney(change.rate.payout_minor, change.market.currency, change.market.minor_digits)} payout`;
+}
+
 const snapshot: { label: string; key: keyof Stats; icon: IconName; note: string }[] = [
   { label: "Pending trades", key: "pending_trades", icon: "swap-horizontal-outline", note: "Awaiting review or more information" },
   { label: "Payout requests", key: "pending_withdrawals", icon: "cash-outline", note: "Pending or processing withdrawals" },
@@ -99,7 +111,7 @@ export default function Reports() {
         <View style={styles.sectionBar}>
           <View style={{ flex: 1 }}>
             <Text style={styles.sectionTitle}>Recent rate activity</Text>
-            <Text style={styles.sectionHint}>Recorded changes to card denomination payouts.</Text>
+            <Text style={styles.sectionHint}>Recorded changes to earlier per-card denomination payouts.</Text>
           </View>
         </View>
         {history.isLoading && !history.data ? <View style={styles.loadingBlock}><ActivityIndicator color={colors.brandPrimary} /><Text style={styles.sectionHint}>Loading rate history…</Text></View>
@@ -116,14 +128,14 @@ export default function Reports() {
             {history.data.changes.slice(0, 12).map((change, index) => <View key={`${change.target}-${change.version}-${index}`} style={styles.tableRow}>
               <Text style={[styles.tablePrimary, styles.brandColumn]} numberOfLines={1}>{change.brand_name}</Text>
               <Text style={[styles.tablePrimary, styles.marketColumn]} numberOfLines={1}>{change.market?.name ?? "Market"}</Text>
-              <View style={styles.changeColumn}><View style={[styles.actionPill, change.action === "rate.disabled" && styles.actionPillMuted]}><Text style={[styles.actionPillText, change.action === "rate.disabled" && styles.actionPillTextMuted]}>{change.action === "rate.disabled" ? "Disabled" : "Updated"}</Text></View></View>
-              <Text style={[styles.tablePrimary, styles.payoutColumn]} numberOfLines={1}>{change.rate ? `$${change.rate.face_value} → ${change.market ? formatMoney(change.rate.payout_minor, change.market.currency, change.market.minor_digits) : `${change.rate.payout_minor} minor units`}` : "—"}</Text>
+              <View style={styles.changeColumn}><View style={[styles.actionPill, change.action !== "rate.updated" && styles.actionPillMuted]}><Text style={[styles.actionPillText, change.action !== "rate.updated" && styles.actionPillTextMuted]}>{rateAction(change.action)}</Text></View></View>
+              <Text style={[styles.tablePrimary, styles.payoutColumn]} numberOfLines={1}>{recordedPayout(change)}</Text>
               <Text style={[styles.tableSecondary, styles.timeColumn]} numberOfLines={1}>{formatDateTime(change.at)}</Text>
             </View>)}
           </View>
           : <View>{history.data.changes.slice(0, 10).map((change, index) => <View key={`${change.target}-${change.version}-${index}`} style={styles.mobileRow}>
-            <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.tablePrimary}>{change.brand_name} · {change.market?.name ?? "Market"}</Text><Text style={styles.tableSecondary}>{change.rate ? `$${change.rate.face_value} → ${change.market ? formatMoney(change.rate.payout_minor, change.market.currency, change.market.minor_digits) : `${change.rate.payout_minor} minor units`}` : "No denomination payload"}</Text><Text style={styles.tableSecondary}>{formatDateTime(change.at)}</Text></View>
-            <View style={[styles.actionPill, change.action === "rate.disabled" && styles.actionPillMuted]}><Text style={[styles.actionPillText, change.action === "rate.disabled" && styles.actionPillTextMuted]}>{change.action === "rate.disabled" ? "Disabled" : "Updated"}</Text></View>
+            <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.tablePrimary}>{change.brand_name} · {change.market?.name ?? "Market"}</Text><Text style={styles.tableSecondary}>{recordedPayout(change)}</Text><Text style={styles.tableSecondary}>{formatDateTime(change.at)}</Text></View>
+            <View style={[styles.actionPill, change.action !== "rate.updated" && styles.actionPillMuted]}><Text style={[styles.actionPillText, change.action !== "rate.updated" && styles.actionPillTextMuted]}>{rateAction(change.action)}</Text></View>
           </View>)}</View>}
       </View>
     </ScrollView>

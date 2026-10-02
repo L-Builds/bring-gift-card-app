@@ -378,7 +378,7 @@ export default function Trade() {
             <View style={styles.payoutIcon}><Ionicons name="wallet" size={24} color={colors.success} /></View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.payoutLabel}>Estimated payout</Text>
-              <Text style={styles.payoutValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{quote.isError ? "Quote unavailable" : quote.isFetching ? "Checking quote…" : quote.data ? formatMoney(payout, quote.data.currency, quote.data.minor_digits) : "—"}</Text>
+              <Text style={styles.payoutValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{quote.isError ? "Quote unavailable" : quote.isFetching ? "Checking quote…" : quote.data ? formatMoney(payout, quote.data.currency, quote.data.minor_digits) : "Enter trade details"}</Text>
             </View>
           </View>
           <View style={styles.rateBox}>

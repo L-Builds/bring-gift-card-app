@@ -113,7 +113,7 @@ export default function AdminWithdrawals() {
   };
 
   const renderActions = (item: WD, compact = false) => {
-    if (!["PENDING", "PROCESSING"].includes(item.status)) return <Text style={styles.noAction}>—</Text>;
+    if (!["PENDING", "PROCESSING"].includes(item.status)) return <Text style={styles.noAction}>No action</Text>;
     return (
       <View style={[styles.actions, compact && styles.actionsCompact]}>
         {item.status === "PENDING" && (

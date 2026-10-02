@@ -31,7 +31,7 @@ export default function ForgotPassword() {
     try {
       const res = await api.post<{ message: string; dev_token?: string }>("/auth/password-reset/request", { email: email.trim() }, false);
       if (res.dev_token) setToken(res.dev_token);
-      toast.show(res.dev_token ? "Reset code ready — set a new password" : res.message, "success");
+      toast.show(res.dev_token ? "Reset code ready. Set a new password." : res.message, "success");
       setStep(2);
     } catch(e) {
       toast.show(e instanceof ApiError ? e.message : "Could not process request", "error");

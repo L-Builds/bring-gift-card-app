@@ -127,7 +127,7 @@ export default function KycScreen() {
       await qc.invalidateQueries({ queryKey: ["kyc"] });
       await refresh();
       setResubmit(false);
-      toast.show("Verification submitted — we'll review it shortly", "success");
+      toast.show("Verification submitted. We'll review it shortly.", "success");
     } catch (e) {
       toast.show(e instanceof ApiError ? e.message : "Could not submit verification", "error");
     } finally {

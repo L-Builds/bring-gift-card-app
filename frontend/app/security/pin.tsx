@@ -51,7 +51,7 @@ export default function TransactionPin() {
       await api.post("/security/pin", { pin, current_pin: currentPin });
       await qc.invalidateQueries({ queryKey: ["pin-status"] });
       await refresh();
-      toast.show(hasPin ? "Transaction PIN changed" : "Transaction PIN set — required for withdrawals", "success");
+      toast.show(hasPin ? "Transaction PIN changed" : "Transaction PIN set. You can now use it for withdrawals.", "success");
       if (router.canGoBack()) router.back(); else router.replace("/(tabs)/profile");
     } catch (e) {
       setError(true);

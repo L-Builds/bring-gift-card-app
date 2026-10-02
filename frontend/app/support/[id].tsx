@@ -84,7 +84,7 @@ export default function TicketDetail() {
             <View style={{ flex: 1 }}>
               <Text style={styles.subject}>{ticket.subject}</Text>
               <Text style={styles.meta}>{ticket.category_label}{ticket.ref_label ? ` • ${ticket.ref_label}` : ""} • Opened {formatDateTime(ticket.created_at)}</Text>
-              {ticket.status === "RESOLVED" && <Text style={styles.resolved}>Marked resolved by support — reply if you still need help.</Text>}
+              {ticket.status === "RESOLVED" && <Text style={styles.resolved}>Marked resolved by support. Reply if you still need help.</Text>}
             </View>
             <StatusBadge status={ticketStatusLabel(ticket.status)} />
           </View>

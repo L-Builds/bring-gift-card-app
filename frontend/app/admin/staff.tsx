@@ -169,7 +169,7 @@ export default function StaffManagement() {
 
           {newRole === "worker" && <View style={{ gap: spacing.sm }}>
             <Text style={styles.fieldHeading}>Assigned permissions</Text>
-            {STAFF_SCOPES.map((scope) => <Toggle key={scope.key} label={`${scope.label} — ${scope.description}`} value={newPermissions.includes(scope.key)} onChange={() => toggleNewPermission(scope.key)} />)}
+            {STAFF_SCOPES.map((scope) => <Toggle key={scope.key} label={scope.label} description={scope.description} value={newPermissions.includes(scope.key)} onChange={() => toggleNewPermission(scope.key)} />)}
           </View>}
           <Action title={busy ? "Creating account…" : "Create Staff Account"} onPress={() => { void createStaff(); }} disabled={busy || !canCreate} />
         </Panel>
@@ -227,7 +227,7 @@ export default function StaffManagement() {
             </View>
             {expandedMember.staff_role === "worker" && <>
               <Text style={styles.fieldHeading}>Assigned permissions</Text>
-              {STAFF_SCOPES.map((scope) => <Toggle key={scope.key} label={`${scope.label} — ${scope.description}`} value={selected.includes(scope.key)} onChange={() => togglePermissionEdit(expandedMember, scope.key)} />)}
+              {STAFF_SCOPES.map((scope) => <Toggle key={scope.key} label={scope.label} description={scope.description} value={selected.includes(scope.key)} onChange={() => togglePermissionEdit(expandedMember, scope.key)} />)}
               {permissionEdits[expandedMember.id] && <Action title={busyId === expandedMember.id ? "Saving…" : "Save Assigned Permissions"} onPress={() => { void updateStaff(expandedMember.id, { staff_permissions: selected }); }} disabled={busyId === expandedMember.id} />}
             </>}
             <Field label="New temporary password" value={passwordEdits[expandedMember.id] ?? ""} onChangeText={(value) => setPasswordEdits((current) => ({ ...current, [expandedMember.id]: value }))} secureTextEntry autoCapitalize="none" autoComplete="new-password" />

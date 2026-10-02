@@ -71,9 +71,9 @@ export default function AdminCustomerDetail() {
 
         <View style={styles.block}>
           <Text style={styles.blockTitle}>Contact & account</Text>
-          <Row label="Phone" value={user.phone || "—"} />
+          <Row label="Phone" value={user.phone || "Not provided"} />
           <Row label="Country" value={user.country} />
-          <Row label="Referral code" value={user.referral_code || "—"} />
+          <Row label="Referral code" value={user.referral_code || "Not assigned"} />
           <Row label="Referred users" value={String(stats.referred_count)} />
           {!!user.last_login_at && <Row label="Last login" value={formatDateTime(user.last_login_at)} />}
         </View>

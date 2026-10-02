@@ -614,10 +614,14 @@ class Production:
             rows = await db.audit.find({"action": {"$in": ["rate.updated", "rate.disabled", "rate.archived", "rate.deleted"]}}, {"_id": 0}).sort("at", -1).to_list(300)
             names = {b["id"]: b["name"] for b in await db.brands.find({}, {"id": 1, "name": 1}).to_list(1000)}
             markets = {m["code"]: m for m in await db.markets.find({}, {"_id": 0}).to_list(250)}
+            actor_ids = sorted({row["actor"] for row in rows if isinstance(row.get("actor"), str) and row["actor"]})
+            actors = {u["id"]: u.get("full_name") or "Staff member" for u in
+                      await db.users.find({"id": {"$in": actor_ids}}, {"_id": 0, "id": 1, "full_name": 1}).to_list(len(actor_ids))} if actor_ids else {}
             for row in rows:
                 rate = row.get("rate", {})
                 row["brand_name"] = names.get(rate.get("brand_id"), "Gift card")
                 row["market"] = markets.get(rate.get("market_code"))
+                row["actor_name"] = actors.get(row.get("actor"), "Former staff member" if row.get("actor") else "System")
             return {"changes": rows}
 
         @api.post("/quotes")

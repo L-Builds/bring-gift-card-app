@@ -254,7 +254,7 @@ export default function AdminLayout() {
           {queueItems.length ? queueItems.map((item) => <Pressable key={item.href} onPress={() => go(item.href)} accessibilityRole="link" accessibilityLabel={item.label} style={styles.popoverItem}>
             <View style={styles.popoverQueueIcon}><Ionicons name={item.icon} size={16} color={colors.brandPrimary} /></View>
             <View style={{ flex: 1 }}><Text style={styles.popoverItemText}>{item.label}</Text><Text style={styles.popoverItemNote}>{item.note}</Text></View>
-            <Text style={[styles.popoverCount, (item.count || 0) === 0 && styles.popoverCountMuted]}>{item.count == null ? "—" : item.count}</Text>
+            <Text style={[styles.popoverCount, (item.count || 0) === 0 && styles.popoverCountMuted]}>{item.count == null ? (queueStats.isLoading ? "Loading" : "Unavailable") : item.count}</Text>
           </Pressable>) : <Text style={styles.staffRole}>No work areas assigned yet.</Text>}
         </>}
       </View>

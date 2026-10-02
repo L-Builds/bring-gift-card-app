@@ -122,7 +122,7 @@ export default function AdminCustomers() {
                 <Text style={[styles.tablePrimary, { flex: 1 }]} numberOfLines={1}>{item.full_name || "Customer"}</Text>
               </View>
               <Text style={[styles.tablePrimary, { flex: 1.55 }]} numberOfLines={1}>{item.email}</Text>
-              <Text style={[styles.tablePrimary, { flex: 1.05 }]} numberOfLines={1}>{item.phone || "—"}</Text>
+              <Text style={[styles.tablePrimary, { flex: 1.05 }]} numberOfLines={1}>{item.phone || "Not provided"}</Text>
               <View style={{ flex: 0.9, alignItems: "flex-start" }}><StatusBadge status={item.kyc_status || "unverified"} /></View>
               <Text style={[styles.tablePrimary, { flex: 0.65 }]}>{item.trades_count}</Text>
               <Text style={[styles.tablePrimary, { flex: 1 }]} numberOfLines={1}>{formatMoney(item.balance_kobo, item.currency || "NGN", item.minor_digits ?? 2)}</Text>

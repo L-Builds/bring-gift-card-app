@@ -1,9 +1,10 @@
 import { Market, useCardRates } from "@/src/lib/market";
 import React, { useState } from "react";
-import { View, Text, ScrollView, Pressable, RefreshControl, useWindowDimensions } from "react-native";
+import { View, Text, ScrollView, Pressable, RefreshControl, Platform, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
+import MaskedView from "@react-native-masked-view/masked-view";
 import Ionicons from "@react-native-vector-icons/ionicons";
 import { Image } from "expo-image";
 import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
@@ -116,7 +117,34 @@ export default function Home() {
         ) : (
           <View testID="home-balance-card">
             <LinearGradient colors={[colors.brandDeep, colors.brandPrimary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.balanceCard}>
-              <Image source={require("../../assets/home/balance-wallet-art.png")} style={styles.balanceArt} contentFit="cover" />
+              {Platform.OS === "web" ? (
+                <Image
+                  source={require("../../assets/home/balance-wallet-art.png")}
+                  style={[
+                    styles.balanceArt,
+                    {
+                      maskImage: "linear-gradient(to right, transparent 0%, black 45%, black 100%)",
+                      WebkitMaskImage: "linear-gradient(to right, transparent 0%, black 45%, black 100%)",
+                    } as any,
+                  ]}
+                  contentFit="cover"
+                />
+              ) : (
+                <MaskedView
+                  style={styles.balanceArt}
+                  maskElement={
+                    <LinearGradient
+                      colors={["transparent", "#000000", "#000000"]}
+                      locations={[0, 0.45, 1]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.balanceArtImage}
+                    />
+                  }
+                >
+                  <Image source={require("../../assets/home/balance-wallet-art.png")} style={styles.balanceArtImage} contentFit="cover" />
+                </MaskedView>
+              )}
               <View style={[styles.balanceCopy, compact && styles.balanceCopyCompact]}>
                 <View style={styles.balanceTop}>
                   <Text style={styles.balanceLabel}>Available Balance</Text>
@@ -258,6 +286,7 @@ const useStyles = makeStyles((colors) => ({
     justifyContent: "center",
   },
   balanceArt: { position: "absolute", right: 0, top: 0, width: "57%", height: "100%" },
+  balanceArtImage: { width: "100%", height: "100%" },
   balanceCopy: { width: "62%", paddingHorizontal: spacing.xl, zIndex: 2 },
   balanceCopyCompact: { width: "76%", paddingHorizontal: spacing.md },
   balanceTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm },

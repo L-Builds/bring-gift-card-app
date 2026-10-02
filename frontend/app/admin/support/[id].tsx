@@ -42,7 +42,7 @@ export default function AdminTicketDetail() {
     try {
       await api.post(`/admin/support/${id}/reply`, { body });
       await after();
-      toast.show("Reply sent — customer notified", "success");
+      toast.show("Reply sent. Customer notified.", "success");
     } catch (e) {
       toast.show(e instanceof ApiError ? e.message : "Reply failed", "error");
       throw e;

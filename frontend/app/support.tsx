@@ -36,7 +36,7 @@ export default function Support() {
           <View style={{ flex: 1 }}>
             <Text style={styles.ticketTitle}>Support inbox</Text>
             <Text style={styles.ticketSub}>
-              {isGuest ? "Sign in to message our team in the app" : openCount ? `${openCount} open ticket${openCount === 1 ? "" : "s"}` : "Raise a case — our team replies right here"}
+              {isGuest ? "Sign in to message our team in the app" : openCount ? `${openCount} open ticket${openCount === 1 ? "" : "s"}` : "Raise a case. Our team replies right here."}
             </Text>
           </View>
           {!!tickets?.unread && <View style={styles.badge}><Text style={styles.badgeText}>{tickets.unread}</Text></View>}

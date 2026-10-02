@@ -60,7 +60,7 @@ export default function NewTicket() {
         ref_type: refId ? refType : "", ref_id: refId ? refId : "",
       });
       qc.invalidateQueries({ queryKey: ["support-tickets"] });
-      toast.show(`Ticket ${t.ref} opened — we'll reply in the app`, "success");
+      toast.show(`Ticket ${t.ref} opened. We'll reply in the app.`, "success");
       router.replace(`/support/${t.id}`);
     } catch (e) {
       toast.show(e instanceof ApiError ? e.message : "Could not open ticket", "error");

@@ -74,7 +74,7 @@ export default function TradeDetail() {
       qc.invalidateQueries({ queryKey: ["transactions"] });
       setReply(""); setEcode(""); setImages([]);
       await refetch();
-      toast.show("Response sent — back to review", "success");
+      toast.show("Response sent for review", "success");
     } catch (e) {
       toast.show(e instanceof ApiError ? e.message : "Could not send", "error");
     } finally {
