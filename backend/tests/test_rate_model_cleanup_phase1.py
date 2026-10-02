@@ -37,7 +37,8 @@ def test_phase1_migration_preserves_legacy_rate_rows():
 
 
 def test_schema_requires_phase1_migration():
-    assert SCHEMA_VERSION == "013_trade_rate_cutover"
+    assert SCHEMA_VERSION == "014_account_deletion"
+    assert (ROOT / "migrations" / f"{SCHEMA_VERSION}.sql").exists()
 
 
 def test_backfill_skips_group_with_an_unknown_per_unit_rate():

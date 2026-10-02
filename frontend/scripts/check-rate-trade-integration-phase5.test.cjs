@@ -54,6 +54,7 @@ test("backend Phase 6 quote and card discovery use new rate tables while legacy 
   assert.match(server, /db\.detailed_rates\.distinct\("brand_id"/);
   assert.match(server, /published_country_type = await db\.detailed_rates\.find_one/);
   assert.match(server, /rate = quote\["rate_minor_per_unit"\]/);
-  assert.match(schema, /SCHEMA_VERSION = '013_trade_rate_cutover'/);
+  const version = /SCHEMA_VERSION = '(\d+)_/.exec(schema);
+  assert.ok(version && Number(version[1]) >= 13, "rate cutover migration must remain applied");
   assert.doesNotMatch(migration, /\b(?:DELETE|DROP|TRUNCATE)\b/i);
 });

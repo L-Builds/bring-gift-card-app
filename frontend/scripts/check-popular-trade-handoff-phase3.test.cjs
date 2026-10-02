@@ -33,9 +33,11 @@ test("Guest trade intent survives email login, signup, and Google web sign-in", 
   const google = readFront("src/lib/google-auth.ts");
   const splash = readFront("app/index.tsx");
   const intent = readFront("src/lib/trade-intent.ts");
+  const accountDeletionReturn = readFront("src/lib/account-deletion-return.ts");
 
-  assert.match(login, /const tradeIntent = useLocalSearchParams<TradeIntent>\(\)/);
-  assert.match(login, /router\.replace\(afterAuthHref\(u\.role, tradeIntent\)\)/);
+  assert.match(login, /const tradeIntent = useLocalSearchParams<TradeIntent & \{ return_to\?: string \}>\(\)/);
+  assert.match(login, /router\.replace\(accountDeletionAfterAuthHref\(u\.role, tradeIntent\)\)/);
+  assert.match(accountDeletionReturn, /return afterAuthHref\(role, input\)/);
   assert.match(login, /tradeAuthHref\("signup", tradeIntent\)/);
   assert.match(signup, /const tradeIntent = useLocalSearchParams<TradeIntent>\(\)/);
   assert.match(signup, /router\.replace\(afterAuthHref\(u\.role, tradeIntent\)\)/);

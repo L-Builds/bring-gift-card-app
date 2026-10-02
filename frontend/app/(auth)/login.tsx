@@ -12,14 +12,15 @@ import { useToast } from "@/src/components/toast";
 import { useAuth } from "@/src/context/auth";
 import { ApiError } from "@/src/api/client";
 import { startGoogleSignIn } from "@/src/lib/google-auth";
-import { afterAuthHref, normalizeTradeIntent, tradeAuthHref, type TradeIntent } from "@/src/lib/trade-intent";
+import { normalizeTradeIntent, tradeAuthHref, type TradeIntent } from "@/src/lib/trade-intent";
+import { accountDeletionAfterAuthHref, rememberGoogleAccountDeletionReturn } from "@/src/lib/account-deletion-return";
 
 export default function Login() {
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const tradeIntent = useLocalSearchParams<TradeIntent>();
+  const tradeIntent = useLocalSearchParams<TradeIntent & { return_to?: string }>();
   const toast = useToast();
   const { login, loginWithGoogle, user, googleBusy } = useAuth();
 
@@ -33,8 +34,8 @@ export default function Login() {
   const webInputReset = Platform.OS === "web" ? ({ outlineStyle: "none", outlineWidth: 0, boxShadow: "none" } as any) : undefined;
 
   useEffect(() => {
-    if (user) router.replace(afterAuthHref(user.role, tradeIntent));
-  }, [user, tradeIntent.brand_id, tradeIntent.card_value_usd, tradeIntent.quantity]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (user) router.replace(accountDeletionAfterAuthHref(user.role, tradeIntent));
+  }, [user, tradeIntent.brand_id, tradeIntent.card_value_usd, tradeIntent.quantity, tradeIntent.return_to]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const changeTab = (next: "email" | "phone") => {
     setTab(next);
@@ -44,11 +45,16 @@ export default function Login() {
   const onGoogle = async () => {
     setGLoading(true);
     try {
+      rememberGoogleAccountDeletionReturn(tradeIntent.return_to);
       const sid = await startGoogleSignIn(tradeIntent);
-      if (!sid) return;
+      if (!sid) {
+        rememberGoogleAccountDeletionReturn(undefined);
+        return;
+      }
       const u = await loginWithGoogle(sid);
       if (u) toast.show(`Welcome, ${u.full_name.split(" ")[0]}!`, "success");
     } catch (e) {
+      rememberGoogleAccountDeletionReturn(undefined);
       toast.show(e instanceof ApiError ? e.message : "Google sign-in failed", "error");
     } finally {
       setGLoading(false);
@@ -64,7 +70,7 @@ export default function Login() {
     try {
       const u = await login(value, password, tab);
       toast.show(`Welcome back, ${u.full_name.split(" ")[0]}!`, "success");
-      router.replace(afterAuthHref(u.role, tradeIntent));
+      router.replace(accountDeletionAfterAuthHref(u.role, tradeIntent));
     } catch (e) {
       toast.show(e instanceof ApiError ? e.message : "Login failed", "error");
     } finally {
@@ -140,7 +146,7 @@ export default function Login() {
             </Pressable>
           </View>
 
-          <Pressable style={styles.forgot} onPress={() => router.push({ pathname: "/(auth)/forgot-password", params: normalizeTradeIntent(tradeIntent) ?? {} })} testID="login-forgot">
+          <Pressable style={styles.forgot} onPress={() => router.push({ pathname: "/(auth)/forgot-password", params: { ...(normalizeTradeIntent(tradeIntent) ?? {}), ...(tradeIntent.return_to === "/delete-account" ? { return_to: "/delete-account" } : {}) } })} testID="login-forgot">
             <Text style={styles.forgotText}>Forgot Password?</Text>
           </Pressable>
 

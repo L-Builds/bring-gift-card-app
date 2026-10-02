@@ -138,6 +138,14 @@ uploads = table('uploads', 'path user_id', dates='created_at', required=('path',
 password_resets = table('password_resets', 'id user_id token_hash', booleans='used', dates='expires_at created_at',
     constraints=(ForeignKeyConstraint(['user_id'], ['users.id']), UniqueConstraint('token_hash')))
 Index('password_resets_expiry', password_resets.c.expires_at)
+account_deletion_requests = table('account_deletion_requests', 'id user_id status reason',
+    dates='created_at updated_at completed_at', required=('id', 'user_id', 'status', 'created_at'), constraints=(
+        ForeignKeyConstraint(['user_id'], ['users.id']),
+        UniqueConstraint('user_id', name='account_deletion_requests_user_unique'),
+        CheckConstraint("status IN ('pending_review', 'completed')", name='account_deletion_requests_status'),
+    ))
+Index('account_deletion_requests_status_date', account_deletion_requests.c.status,
+      account_deletion_requests.c.created_at.desc())
 abuse_counters = table('abuse_counters', integers='count', dates='expires_at')
 Index('abuse_counters_expiry', abuse_counters.c.expires_at)
 kyc_submissions = table('kyc_submissions', 'id user_id status', dates='created_at updated_at reviewed_at',
@@ -163,4 +171,4 @@ upload_parts = Table('upload_parts', metadata,
     UniqueConstraint('session_id','part'), CheckConstraint('part BETWEEN 0 AND 3 AND octet_length(data) <= 3145728',name='upload_part_limit'))
 TABLES['upload_parts']=upload_parts
 
-SCHEMA_VERSION = '013_trade_rate_cutover'
+SCHEMA_VERSION = '014_account_deletion'

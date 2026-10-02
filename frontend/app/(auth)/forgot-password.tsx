@@ -9,7 +9,8 @@ import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { PrimaryButton } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { api, ApiError } from "@/src/api/client";
-import { tradeAuthHref, type TradeIntent } from "@/src/lib/trade-intent";
+import { type TradeIntent } from "@/src/lib/trade-intent";
+import { accountDeletionLoginHref } from "@/src/lib/account-deletion-return";
 
 export default function ForgotPassword() {
   const styles = useStyles();
@@ -18,7 +19,7 @@ export default function ForgotPassword() {
   const router = useRouter();
   const toast = useToast();
 
-  const params = useLocalSearchParams<TradeIntent & {token?:string}>();
+  const params = useLocalSearchParams<TradeIntent & {token?:string; return_to?:string}>();
   const [step, setStep] = useState<1 | 2>(params.token ? 2 : 1);
   const [email, setEmail] = useState("");
   const [token, setToken] = useState(params.token || "");
@@ -47,7 +48,7 @@ export default function ForgotPassword() {
     try {
       await api.post("/auth/password-reset/confirm", { token: token.trim(), password }, false);
       toast.show("Password updated. Please log in.", "success");
-      router.replace(tradeAuthHref("login", params));
+      router.replace(accountDeletionLoginHref(params));
     } catch (e) {
       toast.show(e instanceof ApiError ? e.message : "Reset failed", "error");
     } finally {
@@ -59,7 +60,7 @@ export default function ForgotPassword() {
     <LinearGradient colors={[colors.screenBgAlt, colors.screenBg]} style={{ flex: 1 }}>
       <KeyboardAwareScrollView bottomOffset={20} contentContainerStyle={{ paddingBottom: spacing.xxxl }}>
         <View style={[styles.top, { paddingTop: insets.top + spacing.md }]}>
-          <Pressable style={styles.back} onPress={() => router.canGoBack() ? router.back() : router.replace(tradeAuthHref("login", params))} testID="forgot-back">
+          <Pressable style={styles.back} onPress={() => router.canGoBack() ? router.back() : router.replace(accountDeletionLoginHref(params))} testID="forgot-back">
             <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
           </Pressable>
           <Text style={styles.title}>Reset Password</Text>

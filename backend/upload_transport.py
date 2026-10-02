@@ -37,9 +37,14 @@ def router(s):
             if not x.brand_id or not await s.db.brands.find_one({'id':x.brand_id}):
                 raise HTTPException(404, 'Brand not found')
         uid=s.new_id()
-        await s.db.upload_sessions.insert_one({'id':uid,'user_id':user['id'],'size':x.size,
-            'purpose':x.purpose,'brand_id':x.brand_id if x.purpose == 'brand_logo' else '',
-            'expires_at':s.now()+timedelta(hours=1)})
+        async def run(session):
+            await s.money.lock_user(user['id'],session)
+            account=await s.db.users.find_one({'id':user['id']},session=session)
+            if not account or account.get('disabled'):raise HTTPException(401,'Account is no longer available')
+            await s.db.upload_sessions.insert_one({'id':uid,'user_id':user['id'],'size':x.size,
+                'purpose':x.purpose,'brand_id':x.brand_id if x.purpose == 'brand_logo' else '',
+                'expires_at':s.now()+timedelta(hours=1)},session=session)
+        await s.db.transaction(run)
         return {'id':uid,'chunk_size':CHUNK}
 
     @api.put('/{uid}/{part}')
@@ -64,6 +69,9 @@ def router(s):
     @api.post('/{uid}/complete')
     async def complete(uid:str,user=Depends(s.current_user)):
         async def run(session):
+            await s.money.lock_user(user['id'],session)
+            account=await s.db.users.find_one({'id':user['id']},session=session)
+            if not account or account.get('disabled'):raise HTTPException(401,'Account is no longer available')
             row=await owned(uid,user,session)
             if row.get('path'):
                 return {'brand_id':row['brand_id'],'has_logo':True} if row.get('purpose') == 'brand_logo' else {'path':row['path']}

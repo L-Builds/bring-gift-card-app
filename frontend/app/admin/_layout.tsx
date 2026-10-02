@@ -30,6 +30,7 @@ const navigation: { label: string; items: NavItem[] }[] = [
     { label: "Rates", href: "/admin/rates", icon: "pricetags-outline", visible: management },
     { label: "Markets", href: "/admin/markets", icon: "globe-outline", visible: management },
     { label: "Staff", href: "/admin/staff", icon: "people-circle-outline", visible: canManageStaff },
+    { label: "Deletion requests", href: "/admin/account-deletion", icon: "person-remove-outline", visible: management },
     { label: "Reports", href: "/admin/reports", icon: "bar-chart-outline", visible: management },
     { label: "Settings", href: "/admin/settings", icon: "settings-outline", visible: (u) => u?.role === "admin" },
   ] },
@@ -39,7 +40,7 @@ const titleByRoute: Record<string, string> = {
   "": "Dashboard", trade: "Trade details", trades: "Trades", withdrawals: "Withdrawals",
   customer: "Customer details", customers: "Customers", verification: "Verification",
   kyc: "Verification", support: "Support", catalog: "Catalog", rates: "Rates",
-  markets: "Markets", staff: "Staff", reports: "Reports", settings: "Settings",
+  markets: "Markets", staff: "Staff", "account-deletion": "Deletion requests", reports: "Reports", settings: "Settings",
   "rate-history": "Rate history", production: "Production setup", "payout-providers": "Payout providers",
 };
 

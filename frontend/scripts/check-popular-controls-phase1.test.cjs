@@ -49,5 +49,6 @@ test("Backend keeps Popular membership separate and headline rate remains the so
   assert.match(server, /db\.headline_rates/);
   assert.match(server, /Popular Gift Cards can contain at most 8 cards/);
   assert.match(schema, /popular_cards = table\('popular_cards'/);
-  assert.match(schema, /SCHEMA_VERSION = '013_trade_rate_cutover'/);
+  const version = /SCHEMA_VERSION = '(\d+)_/.exec(schema);
+  assert.ok(version && Number(version[1]) >= 13, "rate cutover migration must remain applied");
 });

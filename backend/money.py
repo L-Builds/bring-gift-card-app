@@ -38,6 +38,9 @@ class Money:
         wid = self.s.new_id()
         async def run(session):
             await self.lock_user(user["id"], session)
+            account = await self.db.users.find_one({"id": user["id"]}, session=session)
+            if not account or account.get("disabled"):
+                raise HTTPException(401, "Account is no longer available")
             previous = await self.db.withdrawals.find_one({"user_id": user["id"], "request_key": request_key}, {"_id": 0}, session=session)
             if previous:
                 if previous["amount_kobo"] != x.amount_kobo or previous["payout_account_id"] != x.payout_account_id:

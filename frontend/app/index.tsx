@@ -6,6 +6,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useTheme } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { takeGoogleTradeIntent, tradeHref } from "@/src/lib/trade-intent";
+import { takeGoogleAccountDeletionReturn } from "@/src/lib/account-deletion-return";
 
 export default function Splash() {
   const router = useRouter();
@@ -21,7 +22,8 @@ export default function Splash() {
     if (!animationComplete || loading || routed.current) return;
     routed.current = true;
     const intent = googleSignInCompleted ? takeGoogleTradeIntent() : null;
-    router.replace(user?.role === "admin" ? "/admin" : user && intent ? tradeHref(intent) : "/(tabs)");
+    const returnToDeleteAccount = googleSignInCompleted && takeGoogleAccountDeletionReturn();
+    router.replace(user?.role === "admin" ? "/admin" : user && returnToDeleteAccount ? "/delete-account" : user && intent ? tradeHref(intent) : "/(tabs)");
   }, [animationComplete, googleSignInCompleted, loading, router, user]);
 
   useEffect(() => {

@@ -6,6 +6,7 @@ import ssl
 from email.message import EmailMessage
 from urllib.parse import quote
 import boto3
+from botocore.exceptions import ClientError
 from PIL import Image, ImageOps, UnidentifiedImageError
 from fastapi import HTTPException
 
@@ -55,6 +56,20 @@ def put_private(path, data, content_type="image/jpeg"):
 def get_private(path):
     obj = s3_client().get_object(Bucket=os.environ["S3_BUCKET"], Key=path)
     return obj["Body"].read(), obj.get("ContentType", "image/jpeg")
+
+
+def delete_private(path):
+    """Delete an unneeded private object, then verify that it is no longer readable."""
+    client = s3_client()
+    bucket = os.environ["S3_BUCKET"]
+    client.delete_object(Bucket=bucket, Key=path)
+    try:
+        client.head_object(Bucket=bucket, Key=path)
+    except ClientError as exc:
+        if str(exc.response.get("Error", {}).get("Code", "")) in {"404", "NoSuchKey", "NotFound"}:
+            return
+        raise
+    raise RuntimeError("Private object still exists after deletion")
 
 
 def send_reset(address, token):

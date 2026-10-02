@@ -82,6 +82,12 @@ export default function Profile() {
           </View>
         )}
 
+        {!isAdmin && (
+          <View style={styles.group}>
+            <Row icon="trash-outline" label="Delete Account" danger onPress={() => router.push("/delete-account")} last />
+          </View>
+        )}
+
         <View style={styles.group}>
           <Row icon="information-circle" label="App Version" right={<Text style={styles.version}>{appVersion ? `v${appVersion}` : "Unavailable"}</Text>} />
           <Row icon="log-out" label="Log Out" danger onPress={async () => { await logout(); router.replace("/"); }} last />

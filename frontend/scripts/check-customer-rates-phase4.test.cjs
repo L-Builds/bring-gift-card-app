@@ -45,7 +45,8 @@ test("rate model separates gift-card country from payout market", () => {
   const production = fs.readFileSync(path.join(backend, "production.py"), "utf8");
   const migration = fs.readFileSync(path.join(backend, "migrations", "008_rate_card_country.sql"), "utf8");
   assert.match(schema, /market_code card_country submission_type/);
-  assert.match(schema, /SCHEMA_VERSION = '013_trade_rate_cutover'/);
+  const version = /SCHEMA_VERSION = '(\d+)_/.exec(schema);
+  assert.ok(version && Number(version[1]) >= 13, "rate cutover migration must remain applied");
   assert.match(production, /card_country: str/);
   assert.match(production, /"card_country": x\.card_country/);
   assert.match(migration, /ADD COLUMN card_country/);

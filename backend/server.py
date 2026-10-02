@@ -32,7 +32,7 @@ from passlib.context import CryptContext
 from money import Money
 from production import Production, encrypt, decrypt, ManualPaidIn
 from payout_providers import ProviderError
-from private_services import clean_image, clean_brand_logo, put_private, get_private, send_reset
+from private_services import clean_image, clean_brand_logo, put_private, get_private, delete_private, send_reset
 from legal_documents import default_legal
 from dotenv import load_dotenv
 
@@ -320,6 +320,23 @@ class SessionRevokeOthersIn(BaseModel):
     current_password: str = Field(min_length=1, max_length=72)
 
 
+class AccountDeletionIn(BaseModel):
+    confirmation: Literal["DELETE"]
+    password: str = Field(default="", max_length=72)
+
+
+class AccountDeletionCleanupIn(BaseModel):
+    confirmation: Literal["REVIEWED"]
+    upload_paths: List[str] = Field(default_factory=list, max_length=100)
+    ticket_ids: List[str] = Field(default_factory=list, max_length=100)
+
+
+class AccountDeletionKycReviewIn(BaseModel):
+    decision: Literal["retain"]
+    records_reviewed: Literal[True]
+    reason: str = Field(min_length=10, max_length=1000)
+
+
 class AdminNotificationPreferenceIn(BaseModel):
     notifications_enabled: bool
 
@@ -537,7 +554,8 @@ async def security_boundary(request: Request, call_next):
     path = request.url.path
     if path.startswith("/api/kyc") or path.startswith("/api/admin/kyc"):
         return JSONResponse({"detail": "KYC is deferred in v1.1.0"}, status_code=404)
-    if request.method == "POST" and (path.startswith("/api/auth/") or path.startswith("/api/security/")):
+    if request.method == "POST" and (path.startswith("/api/auth/") or path.startswith("/api/security/")
+                                     or path == "/api/account-deletion"):
         # Shared DB counter works across API workers; never trust client forwarded headers here.
         ip = request.client.host if request.client else "unknown"
         bucket = int(now().timestamp()) // 60
@@ -714,6 +732,164 @@ async def revoke_other_sessions(x: SessionRevokeOthersIn, user: dict = Depends(c
     }
 
 
+def _deletion_view(request: Optional[dict], requires_password: Optional[bool] = None) -> dict:
+    if not request:
+        result = {"status": "none"}
+    else:
+        result = {"status": request["status"], "reference": request["id"],
+                  "reason": request.get("reason") or ""}
+    if requires_password is not None:
+        result["requires_password"] = requires_password
+    return result
+
+
+def _support_needs_privacy_review(ticket: dict) -> bool:
+    # Only a concrete financial reference justifies automatic preservation.
+    # Account, identity and general conversations may contain unrelated PII.
+    return not (ticket.get("ref_type") in {"trade", "withdrawal"} and ticket.get("ref_id"))
+
+
+async def _account_deletion_blocker(user_id: str, session) -> str:
+    """Check obligations while holding the same user lock as wallet mutations."""
+    if await db.trades.count_documents({"user_id": user_id,
+                                        "status": {"$in": ["DRAFT", "PENDING_REVIEW", "NEED_MORE_INFO"]}}, session=session):
+        return "A gift card trade is still under review. Complete it before closing this account."
+    if await db.withdrawals.count_documents({"user_id": user_id,
+                                             "status": {"$in": ["PENDING", "PROCESSING"]}}, session=session):
+        return "A withdrawal is still being processed. Complete it before closing this account."
+    rows = await db.ledger.aggregate([
+        {"$match": {"user_id": user_id}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount_kobo"}}},
+    ], session=session).to_list(1)
+    if rows and int(rows[0]["total"]) != 0:
+        return "Your wallet has a remaining balance. Please withdraw it or contact support."
+    if await db.kyc_submissions.count_documents({"user_id": user_id}, session=session):
+        request = await db.account_deletion_requests.find_one({"user_id": user_id}, session=session)
+        if not request or not request.get("kyc_retention_reviewed_at"):
+            return "Identity verification records need a documented privacy review before account closure."
+    tickets = await db.support_tickets.find({"user_id": user_id},
+                                            {"id": 1, "status": 1, "category": 1,
+                                             "ref_type": 1, "ref_id": 1},
+                                            session=session).to_list()
+    if any(ticket.get("status") not in {"RESOLVED", "CLOSED"} for ticket in tickets):
+        return "An open support conversation needs resolution before this account can be closed."
+    if any(_support_needs_privacy_review(ticket) for ticket in tickets):
+        return "General support conversations need privacy review before this account can be closed."
+    # Objects live outside the SQL transaction. We never claim deletion while
+    # unrelated personal images may remain in private storage. Trade and
+    # financial/security support evidence stays linked to retained records.
+    uploads = await db.uploads.find({"user_id": user_id}, {"path": 1}, session=session).to_list()
+    for upload in uploads:
+        if await db.trades.find_one({"user_id": user_id, "image_paths": upload["path"]},
+                                    {"id": 1}, session=session):
+            continue
+        if await db.kyc_submissions.find_one({"user_id": user_id, "$or": [
+            {"id_front_path": upload["path"]}, {"id_back_path": upload["path"]},
+            {"selfie_path": upload["path"]},
+        ]}, {"id": 1}, session=session):
+            # KYC presence was checked above; these files stay with the
+            # identity record only after its retention review is documented.
+            continue
+        messages = await db.support_messages.find({"image_paths": upload["path"]},
+                                                  {"ticket_id": 1}, session=session).to_list()
+        if messages and all(any(ticket["id"] == message["ticket_id"] for ticket in tickets)
+                            for message in messages):
+            continue
+        return "Uploaded files need privacy review before this account can be closed."
+    return ""
+
+
+async def _complete_account_deletion(account: dict, request: dict, session) -> dict:
+    """Remove account access and optional profile data; retain financial evidence."""
+    user_id, ts = account["id"], now()
+    # Withdrawal destination snapshots remain in withdrawal history, so the
+    # reusable payout methods can be removed without breaking FK references.
+    await db.payout_accounts.update_many({"user_id": user_id}, {"$set": {
+        "deleted_at": ts, "account_number": None, "verified": False,
+    }, "$unset": {"account_name": "", "provider_name": "", "bank_code": ""}}, session=session)
+    await db.notifications.delete_many({"user_id": user_id}, session=session)
+    await db.password_resets.delete_many({"user_id": user_id}, session=session)
+    await db.upload_sessions.delete_many({"user_id": user_id}, session=session)
+
+    # Keep support bodies as potential dispute/security records, but remove
+    # duplicated previews and identity from their display metadata.
+    tickets = await db.support_tickets.find({"user_id": user_id}, {"id": 1}, session=session).to_list()
+    await db.support_tickets.update_many({"user_id": user_id}, {"$set": {
+        "customer_name": "Deleted customer", "customer_email": "", "last_message_preview": "",
+    }}, session=session)
+    for ticket in tickets:
+        await db.support_messages.update_many({"ticket_id": ticket["id"], "sender": "customer"},
+            {"$set": {"sender_name": "Deleted customer"}}, session=session)
+
+    # Referral links are not money records; remove the deleted customer's
+    # social connections from other active profiles.
+    await db.users.update_many({"referred_by": user_id}, {"$set": {"referred_by": None}}, session=session)
+    await db.users.update_one({"id": user_id}, {"$set": {
+        "full_name": "Deleted customer",
+        "email": f"deleted-{user_id}@accounts.bringgiftcard.invalid",
+        "phone": "", "referral_code": None, "referred_by": None,
+        "disabled": True, "notifications_enabled": False,
+        "pin_failed": 0, "pin_locked_until": None,
+        "account_deleted_at": ts,
+    }, "$unset": {
+        "password_hash": "", "pin_hash": "", "picture": "", "auth_provider": "",
+        "last_login_at": "", "password_changed_at": "", "pin_set_at": "",
+        "kyc_submission_id": "",
+    }, "$inc": {"token_version": 1}}, session=session)
+    await db.account_deletion_requests.update_one({"id": request["id"]}, {"$set": {
+        "status": "completed", "reason": "", "updated_at": ts, "completed_at": ts,
+    }}, session=session)
+    await db.audit.insert_one({"actor": user_id, "action": "account.deletion.completed",
+                               "target": request["id"], "at": ts}, session=session)
+    return {"status": "completed", "reference": request["id"], "reason": ""}
+
+
+@api.get("/account-deletion")
+async def account_deletion_status(user: dict = Depends(current_user)):
+    if user.get("role") != "customer":
+        raise HTTPException(403, "Customer accounts only")
+    account = await db.users.find_one({"id": user["id"]}, {"password_hash": 1})
+    request = await db.account_deletion_requests.find_one({"user_id": user["id"]}, {"_id": 0})
+    return _deletion_view(request, bool(account and account.get("password_hash")))
+
+
+@api.post("/account-deletion")
+async def request_account_deletion(x: AccountDeletionIn, user: dict = Depends(current_user)):
+    if user.get("role") != "customer":
+        raise HTTPException(403, "Customer accounts only")
+
+    async def run(session):
+        await money.lock_user(user["id"], session)
+        account = await db.users.find_one({"id": user["id"]}, session=session)
+        if not account or account.get("disabled"):
+            raise HTTPException(401, "Account is no longer available")
+        if account.get("password_hash") and not verify_pw(x.password, account["password_hash"]):
+            raise HTTPException(401, "Enter your account password to confirm deletion")
+        requires_password = bool(account.get("password_hash"))
+        request = await db.account_deletion_requests.find_one({"user_id": account["id"]},
+                                                               session=session, for_update=True)
+        if request and request["status"] == "completed":
+            return _deletion_view(request, requires_password)
+        reason = await _account_deletion_blocker(account["id"], session)
+        if not request:
+            ts = now()
+            request = {"id": new_id(), "user_id": account["id"], "status": "pending_review",
+                       "reason": reason, "created_at": ts, "updated_at": ts}
+            await db.account_deletion_requests.insert_one(request, session=session)
+            await db.audit.insert_one({"actor": account["id"], "action": "account.deletion.requested",
+                                       "target": request["id"], "at": ts}, session=session)
+        if reason:
+            if request.get("reason") != reason:
+                await db.account_deletion_requests.update_one({"id": request["id"]},
+                    {"$set": {"reason": reason, "updated_at": now()}}, session=session)
+            return {"status": "pending_review", "reference": request["id"], "reason": reason,
+                    "requires_password": requires_password}
+        return {**await _complete_account_deletion(account, request, session),
+                "requires_password": requires_password}
+
+    return await money.transaction(run)
+
+
 @api.post("/auth/session")
 async def google_session(x: SessionIn):
     """Exchange a one-time managed-auth `session_id` for an app JWT (upsert user by email)."""
@@ -743,7 +919,9 @@ async def google_session(x: SessionIn):
             upd["picture"] = data["picture"]
         if not user.get("auth_provider"):
             upd["auth_provider"] = "google" if not user.get("password_hash") else "password"
-        await db.users.update_one({"id": user["id"]}, {"$set": upd})
+        result = await db.users.update_one({"id": user["id"], "disabled": {"$ne": True}}, {"$set": upd})
+        if not result.matched_count:
+            raise HTTPException(401, "This account is disabled")
         user = {**user, **upd}
     token = make_token(user)
     return {"session_token": token, "access_token": token, "user": public_user(user)}
@@ -787,8 +965,8 @@ async def reset_confirm(x: ResetConfirmIn):
             {"$set": {"used": True}}, session=session)
         if not doc:
             raise HTTPException(400, "Invalid or expired reset token")
-        account = await db.users.find_one({"id": doc["user_id"]}, session=session)
-        if not account:
+        account = await db.users.find_one({"id": doc["user_id"]}, session=session, for_update=True)
+        if not account or account.get("disabled"):
             raise HTTPException(400, "Invalid or expired reset token")
         if account.get("role") == "admin" and not valid_admin_password(x.password):
             raise HTTPException(422, "Admin password must be 12 to 72 UTF-8 bytes and end with @admin")
@@ -998,18 +1176,23 @@ async def store_brand_logo(path, data):
 
 @api.post("/uploads")
 async def upload_file(user: dict = Depends(current_user), file: UploadFile = File(...)):
-    ext = (file.filename or "img.jpg").split(".")[-1].lower()[:5] or "jpg"
     data = await file.read(12 * 1024 * 1024 + 1)
     if len(data) > 12 * 1024 * 1024:
         raise HTTPException(413, "Image too large (max 12MB)")
     data = await run_in_threadpool(clean_image, data)
     path = f"{APP_NAME}/uploads/{user['id']}/{new_id()}.jpg"
-    try:
-        await store_image(path, data)
-    except Exception as e:
-        logger.exception("upload failed")
-        raise HTTPException(502, "Upload failed, please retry")
-    await db.uploads.insert_one({"path": path, "user_id": user["id"], "created_at": now()})
+    async def run(session):
+        await money.lock_user(user["id"], session)
+        account = await db.users.find_one({"id": user["id"]}, session=session)
+        if not account or account.get("disabled"):
+            raise HTTPException(401, "Account is no longer available")
+        try:
+            await store_image(path, data)
+        except Exception:
+            logger.exception("upload failed")
+            raise HTTPException(502, "Upload failed, please retry")
+        await db.uploads.insert_one({"path": path, "user_id": user["id"], "created_at": now()}, session=session)
+    await money.transaction(run)
     return {"path": path}
 
 
@@ -1091,6 +1274,10 @@ async def create_trade(x: TradeIn, user: dict = Depends(current_user)):
         raise HTTPException(400, "Please enter the e-code / card details")
     await validate_uploads(x.image_paths, user)
     async def submit(session):
+        await money.lock_user(user["id"], session)
+        account = await db.users.find_one({"id": user["id"]}, session=session)
+        if not account or account.get("disabled"):
+            raise HTTPException(401, "Account is no longer available")
         # Hold the rate row until the trade is recorded. A concurrent admin rate
         # publication must either precede this version check or follow the trade.
         quote = await production.quote(
@@ -1149,24 +1336,28 @@ async def get_trade(trade_id: str, user: dict = Depends(current_user)):
 
 @api.post("/trades/{trade_id}/reply")
 async def reply_need_info(trade_id: str, x: NeedInfoReplyIn, user: dict = Depends(current_user)):
-    t = await db.trades.find_one({"id": trade_id, "user_id": user["id"]})
-    if not t:
-        raise HTTPException(404, "Trade not found")
-    if t["status"] != "NEED_MORE_INFO":
-        raise HTTPException(400, "This trade is not awaiting more information")
-    await validate_uploads(x.image_paths, user)
-    updates = {"status": "PENDING_REVIEW", "updated_at": now()}
-    if x.ecode.strip():
-        updates["ecode_encrypted"] = encrypt(x.ecode.strip())
-    new_images = t.get("image_paths", []) + x.image_paths
-    if x.image_paths:
-        updates["image_paths"] = new_images
-    hist = {"status": "PENDING_REVIEW", "at": now(), "by": "customer", "note": x.message or "Customer provided more information"}
-    result = await db.trades.update_one({"id": trade_id, "status": "NEED_MORE_INFO"}, {"$set": updates, "$push": {"status_history": hist}})
-    if not result.modified_count:
-        raise HTTPException(409, "Trade state changed; refresh before replying")
-    t = await db.trades.find_one({"id": trade_id})
-    return public_trade(t)
+    async def run(session):
+        await money.lock_user(user["id"], session)
+        account = await db.users.find_one({"id": user["id"]}, session=session)
+        if not account or account.get("disabled"):
+            raise HTTPException(401, "Account is no longer available")
+        t = await db.trades.find_one({"id": trade_id, "user_id": user["id"]}, session=session, for_update=True)
+        if not t:
+            raise HTTPException(404, "Trade not found")
+        if t["status"] != "NEED_MORE_INFO":
+            raise HTTPException(400, "This trade is not awaiting more information")
+        await validate_uploads(x.image_paths, user)
+        updates = {"status": "PENDING_REVIEW", "updated_at": now()}
+        if x.ecode.strip():
+            updates["ecode_encrypted"] = encrypt(x.ecode.strip())
+        if x.image_paths:
+            updates["image_paths"] = t.get("image_paths", []) + x.image_paths
+        hist = {"status": "PENDING_REVIEW", "at": now(), "by": "customer",
+                "note": x.message or "Customer provided more information"}
+        await db.trades.update_one({"id": trade_id}, {"$set": updates,
+            "$push": {"status_history": hist}}, session=session)
+        return public_trade({**t, **updates, "status_history": t.get("status_history", []) + [hist]})
+    return await money.transaction(run)
 
 
 # ===========================================================================
@@ -1210,7 +1401,13 @@ async def add_account(x: PayoutAccountIn, user: dict = Depends(current_user)):
         "account_name": resolved_name, "verified": verified, "bank_code": x.bank_code,
         "payout_provider_id": x.payout_provider_id, "currency": user.get("currency", "NGN"), "deleted_at": None, "created_at": now(),
     }
-    await db.payout_accounts.insert_one(acc)
+    async def insert(session):
+        await money.lock_user(user["id"], session)
+        account = await db.users.find_one({"id": user["id"]}, session=session)
+        if not account or account.get("disabled"):
+            raise HTTPException(401, "Account is no longer available")
+        await db.payout_accounts.insert_one(acc, session=session)
+    await money.transaction(insert)
     acc.pop("_id", None)
     return acc
 
@@ -1419,7 +1616,10 @@ async def referral_apply(x: ReferralApplyIn, user: dict = Depends(current_user))
     code = x.code.strip().upper()
     async def link(session):
         await money.lock_user(user["id"], session)
-        full = await db.users.find_one({"id": user["id"]}, {"_id": 0, "referred_by": 1, "referral_code": 1}, session=session)
+        full = await db.users.find_one({"id": user["id"]},
+            {"_id": 0, "referred_by": 1, "referral_code": 1, "disabled": 1}, session=session)
+        if full is None or full.get("disabled"):
+            raise HTTPException(401, "Account is no longer available")
         if full.get("referred_by"):
             raise HTTPException(400, "A referral code is already linked to your account")
         if code == (full.get("referral_code") or "").upper():
@@ -1517,11 +1717,18 @@ async def set_pin(x: PinSetIn, user: dict = Depends(current_user)):
     if full.get("pin_hash"):
         # Changing an existing PIN requires the current one (with lockout protection).
         await verify_pin_or_raise(user, x.current_pin)
-    await db.users.update_one({"id": user["id"]}, {"$set": {
-        "pin_hash": hash_pw(x.pin), "pin_set_at": now(), "pin_failed": 0, "pin_locked_until": None}})
-    await notify(user["id"], "Transaction PIN updated",
-                 "Your transaction PIN was " + ("changed." if full.get("pin_hash") else "set. It is now required for withdrawals."), "security")
-    return {"ok": True, "has_pin": True}
+    async def run(session):
+        await money.lock_user(user["id"], session)
+        account = await db.users.find_one({"id": user["id"]}, session=session)
+        if not account or account.get("disabled"):
+            raise HTTPException(401, "Account is no longer available")
+        await db.users.update_one({"id": user["id"]}, {"$set": {
+            "pin_hash": hash_pw(x.pin), "pin_set_at": now(), "pin_failed": 0, "pin_locked_until": None}}, session=session)
+        await notify(user["id"], "Transaction PIN updated",
+                     "Your transaction PIN was " + ("changed." if full.get("pin_hash") else "set. It is now required for withdrawals."),
+                     "security", session=session)
+        return {"ok": True, "has_pin": True}
+    return await money.transaction(run)
 
 
 @api.post("/security/pin/reset")
@@ -1534,10 +1741,19 @@ async def reset_pin(x: PinResetIn, user: dict = Depends(current_user)):
         raise HTTPException(401, "Incorrect account password")
     if len(set(x.pin)) == 1 or x.pin in ("1234", "0123", "4321", "9876"):
         raise HTTPException(400, "Choose a less predictable PIN")
-    await db.users.update_one({"id": user["id"]}, {"$set": {
-        "pin_hash": hash_pw(x.pin), "pin_set_at": now(), "pin_failed": 0, "pin_locked_until": None}})
-    await notify(user["id"], "Transaction PIN reset", "Your transaction PIN was reset using your password.", "security")
-    return {"ok": True, "has_pin": True}
+    async def run(session):
+        await money.lock_user(user["id"], session)
+        account = await db.users.find_one({"id": user["id"]}, session=session)
+        if not account or account.get("disabled"):
+            raise HTTPException(401, "Account is no longer available")
+        if not verify_pw(x.password, account.get("password_hash", "")):
+            raise HTTPException(401, "Incorrect account password")
+        await db.users.update_one({"id": user["id"]}, {"$set": {
+            "pin_hash": hash_pw(x.pin), "pin_set_at": now(), "pin_failed": 0, "pin_locked_until": None}}, session=session)
+        await notify(user["id"], "Transaction PIN reset", "Your transaction PIN was reset using your password.",
+                     "security", session=session)
+        return {"ok": True, "has_pin": True}
+    return await money.transaction(run)
 
 
 # ===========================================================================
@@ -1558,10 +1774,11 @@ async def _ticket_messages(ticket_id: str) -> list[dict]:
     return await db.support_messages.find({"ticket_id": ticket_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
 
 
-async def _add_message(ticket: dict, sender: str, sender_name: str, body: str, image_paths: list[str]) -> dict:
+async def _add_message(ticket: dict, sender: str, sender_name: str, body: str,
+                       image_paths: list[str], session=None) -> dict:
     msg = {"id": new_id(), "ticket_id": ticket["id"], "sender": sender, "sender_name": sender_name,
            "body": body.strip(), "image_paths": image_paths, "created_at": now()}
-    await db.support_messages.insert_one(msg)
+    await db.support_messages.insert_one(msg, session=session)
     msg.pop("_id", None)
     return msg
 
@@ -1576,33 +1793,42 @@ async def my_tickets(user: dict = Depends(current_user)):
 
 @api.post("/support/tickets")
 async def create_ticket(x: TicketIn, user: dict = Depends(current_user)):
-    await validate_uploads(x.image_paths, user)
-    open_count = await db.support_tickets.count_documents({"user_id": user["id"], "status": {"$in": ["OPEN", "AWAITING_CUSTOMER"]}})
-    if open_count >= 5:
-        raise HTTPException(400, "You already have 5 open tickets. Please wait for a reply or close one first.")
-    ref_label = ""
-    if x.ref_type == "trade" and x.ref_id:
-        t = await db.trades.find_one({"id": x.ref_id, "user_id": user["id"]}, {"_id": 0, "order_id": 1})
-        if not t:
-            raise HTTPException(400, "Trade reference not found")
-        ref_label = t["order_id"]
-    elif x.ref_type == "withdrawal" and x.ref_id:
-        w = await db.withdrawals.find_one({"id": x.ref_id, "user_id": user["id"]}, {"_id": 0, "ref": 1})
-        if not w:
-            raise HTTPException(400, "Withdrawal reference not found")
-        ref_label = w["ref"]
-    ts = now()
-    ticket = {
-        "id": new_id(), "ref": order_ref("BGCS"), "user_id": user["id"], "customer_name": user["full_name"],
-        "customer_email": user["email"], "subject": x.subject.strip(), "category": x.category,
-        "ref_type": x.ref_type, "ref_id": x.ref_id, "ref_label": ref_label,
-        "status": "OPEN", "unread_for_customer": 0, "unread_for_admin": 1,
-        "last_message_at": ts, "last_message_preview": x.message.strip()[:120], "last_sender": "customer",
-        "created_at": ts, "updated_at": ts, "resolved_at": None,
-    }
-    await db.support_tickets.insert_one(ticket)
-    await _add_message(ticket, "customer", user["full_name"], x.message, x.image_paths)
-    return public_ticket(ticket)
+    async def run(session):
+        await money.lock_user(user["id"], session)
+        account = await db.users.find_one({"id": user["id"]}, session=session)
+        if not account or account.get("disabled"):
+            raise HTTPException(401, "Account is no longer available")
+        await validate_uploads(x.image_paths, user)
+        open_count = await db.support_tickets.count_documents({
+            "user_id": user["id"], "status": {"$in": ["OPEN", "AWAITING_CUSTOMER"]}}, session=session)
+        if open_count >= 5:
+            raise HTTPException(400, "You already have 5 open tickets. Please wait for a reply or close one first.")
+        ref_label = ""
+        if x.ref_type == "trade" and x.ref_id:
+            t = await db.trades.find_one({"id": x.ref_id, "user_id": user["id"]},
+                                         {"_id": 0, "order_id": 1}, session=session)
+            if not t:
+                raise HTTPException(400, "Trade reference not found")
+            ref_label = t["order_id"]
+        elif x.ref_type == "withdrawal" and x.ref_id:
+            w = await db.withdrawals.find_one({"id": x.ref_id, "user_id": user["id"]},
+                                              {"_id": 0, "ref": 1}, session=session)
+            if not w:
+                raise HTTPException(400, "Withdrawal reference not found")
+            ref_label = w["ref"]
+        ts = now()
+        ticket = {
+            "id": new_id(), "ref": order_ref("BGCS"), "user_id": user["id"], "customer_name": account["full_name"],
+            "customer_email": account["email"], "subject": x.subject.strip(), "category": x.category,
+            "ref_type": x.ref_type, "ref_id": x.ref_id, "ref_label": ref_label,
+            "status": "OPEN", "unread_for_customer": 0, "unread_for_admin": 1,
+            "last_message_at": ts, "last_message_preview": x.message.strip()[:120], "last_sender": "customer",
+            "created_at": ts, "updated_at": ts, "resolved_at": None,
+        }
+        await db.support_tickets.insert_one(ticket, session=session)
+        await _add_message(ticket, "customer", account["full_name"], x.message, x.image_paths, session=session)
+        return public_ticket(ticket)
+    return await money.transaction(run)
 
 
 @api.get("/support/tickets/{ticket_id}")
@@ -1618,26 +1844,41 @@ async def get_ticket(ticket_id: str, user: dict = Depends(current_user)):
 
 @api.post("/support/tickets/{ticket_id}/messages")
 async def customer_reply(ticket_id: str, x: TicketMessageIn, user: dict = Depends(current_user)):
-    await validate_uploads(x.image_paths, user)
-    t = await db.support_tickets.find_one({"id": ticket_id, "user_id": user["id"]})
-    if not t:
-        raise HTTPException(404, "Ticket not found")
-    if t["status"] == "CLOSED":
-        raise HTTPException(400, "This ticket is closed. Please open a new one.")
-    msg = await _add_message(t, "customer", user["full_name"], x.body, x.image_paths)
-    await db.support_tickets.update_one({"id": ticket_id}, {"$set": {
-        "status": "OPEN", "unread_for_admin": int(t.get("unread_for_admin", 0)) + 1, "last_message_at": msg["created_at"],
-        "last_message_preview": msg["body"][:120], "last_sender": "customer", "updated_at": now(), "resolved_at": None}})
-    return msg
+    async def run(session):
+        await money.lock_user(user["id"], session)
+        account = await db.users.find_one({"id": user["id"]}, session=session)
+        if not account or account.get("disabled"):
+            raise HTTPException(401, "Account is no longer available")
+        await validate_uploads(x.image_paths, user)
+        t = await db.support_tickets.find_one({"id": ticket_id, "user_id": user["id"]},
+                                              session=session, for_update=True)
+        if not t:
+            raise HTTPException(404, "Ticket not found")
+        if t["status"] == "CLOSED":
+            raise HTTPException(400, "This ticket is closed. Please open a new one.")
+        msg = await _add_message(t, "customer", account["full_name"], x.body, x.image_paths, session=session)
+        await db.support_tickets.update_one({"id": ticket_id}, {"$set": {
+            "status": "OPEN", "unread_for_admin": int(t.get("unread_for_admin", 0)) + 1,
+            "last_message_at": msg["created_at"], "last_message_preview": msg["body"][:120],
+            "last_sender": "customer", "updated_at": now(), "resolved_at": None}}, session=session)
+        return msg
+    return await money.transaction(run)
 
 
 @api.post("/support/tickets/{ticket_id}/close")
 async def customer_close(ticket_id: str, user: dict = Depends(current_user)):
-    t = await db.support_tickets.find_one({"id": ticket_id, "user_id": user["id"]})
-    if not t:
-        raise HTTPException(404, "Ticket not found")
-    await db.support_tickets.update_one({"id": ticket_id}, {"$set": {"status": "CLOSED", "updated_at": now(), "resolved_at": now()}})
-    return {"ok": True}
+    async def run(session):
+        await money.lock_user(user["id"], session)
+        account = await db.users.find_one({"id": user["id"]}, session=session)
+        if not account or account.get("disabled"):
+            raise HTTPException(401, "Account is no longer available")
+        t = await db.support_tickets.find_one({"id": ticket_id, "user_id": user["id"]}, session=session)
+        if not t:
+            raise HTTPException(404, "Ticket not found")
+        await db.support_tickets.update_one({"id": ticket_id}, {"$set": {
+            "status": "CLOSED", "updated_at": now(), "resolved_at": now()}}, session=session)
+        return {"ok": True}
+    return await money.transaction(run)
 
 
 @api.get("/admin/support")
@@ -1700,6 +1941,198 @@ def public_staff(u: dict) -> dict:
         "staff_role": staff_role(u), "staff_permissions": staff_permissions(u),
         "disabled": bool(u.get("disabled")), "created_at": u.get("created_at"),
     }
+
+
+@api.get("/admin/account-deletion")
+async def admin_account_deletion_requests(
+    status: Literal["pending_review", "completed", "all"] = "pending_review",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    admin: dict = Depends(require_admin),
+):
+    query = {} if status == "all" else {"status": status}
+    total = await db.account_deletion_requests.count_documents(query)
+    requests = await db.account_deletion_requests.find(query, {"_id": 0}).sort(
+        [("created_at", 1 if status == "pending_review" else -1), ("id", 1)]
+    ).skip((page - 1) * page_size).to_list(page_size)
+    user_ids = [request["user_id"] for request in requests]
+    users = {u["id"]: u for u in await db.users.find({"id": {"$in": user_ids}},
+        {"_id": 0, "id": 1, "full_name": 1, "email": 1}).to_list(len(user_ids))} if user_ids else {}
+    return {"requests": [{**_deletion_view(request), "user_id": request["user_id"],
+                          "customer_name": users.get(request["user_id"], {}).get("full_name", "Deleted customer"),
+                          "customer_email": users.get(request["user_id"], {}).get("email", ""),
+                          "created_at": request["created_at"], "completed_at": request.get("completed_at")}
+                         for request in requests], "total": total, "page": page, "page_size": page_size}
+
+
+@api.get("/admin/account-deletion/{request_id}/review")
+async def admin_account_deletion_review(request_id: str, admin: dict = Depends(require_admin)):
+    request = await db.account_deletion_requests.find_one({"id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(404, "Deletion request not found")
+    user_id = request["user_id"]
+    tickets = await db.support_tickets.find({"user_id": user_id}, {"_id": 0}).to_list()
+    uploads = await db.uploads.find({"user_id": user_id}, {"_id": 0, "path": 1,
+                                                          "created_at": 1}).to_list()
+    upload_rows = []
+    for upload in uploads:
+        trade = await db.trades.find_one({"image_paths": upload["path"]}, {"id": 1})
+        kyc_evidence = await db.kyc_submissions.find_one({"$or": [
+            {"id_front_path": upload["path"]}, {"id_back_path": upload["path"]},
+            {"selfie_path": upload["path"]},
+        ]}, {"id": 1})
+        messages = await db.support_messages.find({"image_paths": upload["path"]},
+                                                  {"ticket_id": 1}).to_list()
+        upload_rows.append({"path": upload["path"], "created_at": upload.get("created_at"),
+                            "trade_evidence": bool(trade), "kyc_evidence": bool(kyc_evidence),
+                            "support_ticket_ids": sorted({message["ticket_id"] for message in messages})})
+    kyc = await db.kyc_submissions.find({"user_id": user_id}, {"id": 1, "status": 1}).to_list()
+    return {**_deletion_view(request), "storage_cleanup_available": bool(os.environ.get("S3_BUCKET")),
+            "uploads": upload_rows,
+            "support_tickets": [{"id": ticket["id"], "subject": ticket.get("subject", ""),
+                                 "status": ticket.get("status", ""), "category": ticket.get("category", "other"),
+                                 "ref": ticket.get("ref", ""), "can_remove": _support_needs_privacy_review(ticket)
+                                 and ticket.get("status") in {"RESOLVED", "CLOSED"}}
+                                for ticket in tickets if _support_needs_privacy_review(ticket)],
+            "kyc_submissions": kyc,
+            "kyc_retention_reviewed": bool(request.get("kyc_retention_reviewed_at"))}
+
+
+@api.post("/admin/account-deletion/{request_id}/kyc-review")
+async def admin_account_deletion_kyc_review(request_id: str, x: AccountDeletionKycReviewIn,
+                                            admin: dict = Depends(require_admin)):
+    if not x.reason.strip() or len(x.reason.strip()) < 10:
+        raise HTTPException(422, "Document the specific retention reason")
+    async def run(session):
+        request = await db.account_deletion_requests.find_one({"id": request_id}, session=session)
+        if not request:
+            raise HTTPException(404, "Deletion request not found")
+        await money.lock_user(request["user_id"], session)
+        request = await db.account_deletion_requests.find_one({"id": request_id}, session=session, for_update=True)
+        if request["status"] == "completed":
+            return _deletion_view(request)
+        if not await db.kyc_submissions.count_documents({"user_id": request["user_id"]}, session=session):
+            raise HTTPException(409, "No identity records require review")
+        ts = now()
+        await db.account_deletion_requests.update_one({"id": request_id}, {"$set": {
+            "kyc_retention_reviewed_at": ts, "kyc_retention_reviewed_by": admin["id"],
+            "kyc_retention_reason": x.reason.strip(), "updated_at": ts,
+        }}, session=session)
+        await db.audit.insert_one({"actor": admin["id"], "action": "account.deletion.kyc_retention_reviewed",
+                                   "target": request_id, "at": ts}, session=session)
+        return {"status": "pending_review", "reference": request_id,
+                "reason": "Identity records were reviewed. Complete any remaining steps, then finalize."}
+    return await money.transaction(run)
+
+
+@api.post("/admin/account-deletion/{request_id}/cleanup")
+async def admin_account_deletion_cleanup(request_id: str, x: AccountDeletionCleanupIn,
+                                         admin: dict = Depends(require_admin)):
+    if not x.upload_paths and not x.ticket_ids:
+        raise HTTPException(422, "Select reviewed files or general support tickets")
+    if len(set(x.upload_paths)) != len(x.upload_paths) or len(set(x.ticket_ids)) != len(x.ticket_ids):
+        raise HTTPException(422, "Select each file and ticket once")
+
+    async def run(session):
+        request = await db.account_deletion_requests.find_one({"id": request_id}, session=session)
+        if not request:
+            raise HTTPException(404, "Deletion request not found")
+        user_id = request["user_id"]
+        await money.lock_user(user_id, session)
+        request = await db.account_deletion_requests.find_one({"id": request_id}, session=session, for_update=True)
+        if request["status"] == "completed":
+            return {**_deletion_view(request), "removed_uploads": 0, "removed_tickets": 0}
+        account = await db.users.find_one({"id": user_id}, session=session)
+        if not account or account.get("role") != "customer" or account.get("disabled"):
+            raise HTTPException(409, "Customer account is unavailable for deletion")
+
+        selected_tickets = []
+        selected_ids = set(x.ticket_ids)
+        candidate_paths = set(x.upload_paths)
+        for ticket_id in selected_ids:
+            ticket = await db.support_tickets.find_one({"id": ticket_id, "user_id": user_id},
+                                                       session=session, for_update=True)
+            if not ticket:
+                raise HTTPException(404, "Support ticket not found")
+            if not _support_needs_privacy_review(ticket) or ticket.get("status") not in {"RESOLVED", "CLOSED"}:
+                raise HTTPException(409, "Only closed, nonfinancial support tickets can be removed")
+            selected_tickets.append(ticket)
+            messages = await db.support_messages.find({"ticket_id": ticket_id},
+                                                       {"image_paths": 1}, session=session).to_list()
+            for message in messages:
+                candidate_paths.update(message.get("image_paths") or [])
+
+        deletable_paths = []
+        for path in sorted(candidate_paths):
+            if not re.fullmatch(r"bring-gift-card/uploads/[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+", path):
+                raise HTTPException(409, "Attachment path needs manual storage review")
+            upload = await db.uploads.find_one({"path": path}, session=session, for_update=True)
+            if not upload:
+                raise HTTPException(409, "Attachment storage record needs manual review")
+            if path in x.upload_paths and upload["user_id"] != user_id:
+                raise HTTPException(403, "File does not belong to this customer")
+            trade_link = await db.trades.find_one({"image_paths": path}, {"id": 1}, session=session)
+            kyc_link = await db.kyc_submissions.find_one({"$or": [
+                {"id_front_path": path}, {"id_back_path": path}, {"selfie_path": path},
+            ]}, {"id": 1}, session=session)
+            support_links = await db.support_messages.find({"image_paths": path},
+                                                            {"ticket_id": 1}, session=session).to_list()
+            retained_link = (bool(trade_link) or bool(kyc_link)
+                             or any(message["ticket_id"] not in selected_ids for message in support_links))
+            if retained_link:
+                if path in x.upload_paths:
+                    raise HTTPException(409, "File is linked to retained trade, identity or support evidence")
+                continue
+            deletable_paths.append(path)
+
+        if deletable_paths and not os.environ.get("S3_BUCKET"):
+            raise HTTPException(503, "Private storage deletion is unavailable; keep the request pending for provider cleanup")
+        for path in deletable_paths:
+            try:
+                await run_in_threadpool(delete_private, path)
+            except Exception:
+                logger.exception("Private file cleanup failed")
+                raise HTTPException(502, "Private file cleanup failed; deletion request remains pending")
+            await db.upload_sessions.delete_many({"path": path}, session=session)
+            await db.uploads.delete_many({"path": path}, session=session)
+        for ticket in selected_tickets:
+            await db.support_messages.delete_many({"ticket_id": ticket["id"]}, session=session)
+            await db.support_tickets.delete_many({"id": ticket["id"]}, session=session)
+        await db.audit.insert_one({"actor": admin["id"], "action": "account.deletion.cleanup",
+                                   "target": request_id, "removed_uploads": len(deletable_paths),
+                                   "removed_tickets": len(selected_tickets), "at": now()}, session=session)
+        reason = await _account_deletion_blocker(user_id, session)
+        if reason:
+            await db.account_deletion_requests.update_one({"id": request_id},
+                {"$set": {"reason": reason, "updated_at": now()}}, session=session)
+            return {"status": "pending_review", "reference": request_id, "reason": reason,
+                    "removed_uploads": len(deletable_paths), "removed_tickets": len(selected_tickets)}
+        return {**await _complete_account_deletion(account, request, session),
+                "removed_uploads": len(deletable_paths), "removed_tickets": len(selected_tickets)}
+
+    return await money.transaction(run)
+
+
+@api.post("/admin/account-deletion/{request_id}/finalize")
+async def admin_finalize_account_deletion(request_id: str, admin: dict = Depends(require_admin)):
+    async def run(session):
+        request = await db.account_deletion_requests.find_one({"id": request_id}, session=session)
+        if not request:
+            raise HTTPException(404, "Deletion request not found")
+        await money.lock_user(request["user_id"], session)
+        request = await db.account_deletion_requests.find_one({"id": request_id}, session=session, for_update=True)
+        if request["status"] == "completed":
+            return _deletion_view(request)
+        account = await db.users.find_one({"id": request["user_id"]}, session=session)
+        if not account or account.get("role") != "customer" or account.get("disabled"):
+            raise HTTPException(409, "Customer account is unavailable for deletion")
+        reason = await _account_deletion_blocker(account["id"], session)
+        if reason:
+            await db.account_deletion_requests.update_one({"id": request_id},
+                {"$set": {"reason": reason, "updated_at": now()}}, session=session)
+            return {"status": "pending_review", "reference": request_id, "reason": reason}
+        return await _complete_account_deletion(account, request, session)
+    return await money.transaction(run)
 
 
 @api.get("/admin/staff")

@@ -15,7 +15,7 @@ from schema import TABLES
 
 
 MUTABLE_TABLES = frozenset({
-    "abuse_counters", "audit", "brands", "card_rates", "detailed_rates",
+    "abuse_counters", "account_deletion_requests", "audit", "brands", "card_rates", "detailed_rates",
     "headline_rates", "kyc_submissions", "legal", "markets", "notifications",
     "password_resets", "payout_accounts", "payout_providers", "popular_cards",
     "rate_changes", "settings", "support_messages", "support_tickets",
