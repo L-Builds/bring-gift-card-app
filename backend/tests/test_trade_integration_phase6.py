@@ -79,6 +79,12 @@ async def test_phase6_rate_chain_and_trade_cutover(http, actors):
                     ("US", "physical", 113841), ("US", "ecode", 110500),
                 }
 
+        too_large = await http.post("/api/quotes", headers=customer_auth, json={
+            "brand_id": brand_id, "face_value": 10**18, "quantity": 100,
+            "card_country": "US", "submission_type": "ecode",
+        })
+        assert too_large.status_code == 422, too_large.text
+
         quote = await http.post("/api/quotes", headers=customer_auth, json={
             "brand_id": brand_id,
             "face_value": 100,

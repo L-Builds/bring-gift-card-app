@@ -72,8 +72,8 @@ export default function Home() {
     queryFn: () => api.get<{ popular_cards: PopularCard[]; market: Market | null }>(`/popular-cards?market_code=${encodeURIComponent(marketCode)}`, false),
   });
   const allBrands = useQuery({
-    queryKey: ["brands", "all", marketCode],
-    queryFn: () => api.get<{ brands: Brand[] }>(`/brands?market_code=${encodeURIComponent(marketCode)}`, false),
+    queryKey: ["brands", "rates", "all", marketCode],
+    queryFn: () => api.get<{ brands: Brand[] }>(`/brands?market_code=${encodeURIComponent(marketCode)}&purpose=rates`, false),
     enabled: !isError && data?.popular_cards.length === 0,
   });
 

@@ -196,6 +196,21 @@ export function CatalogWorkspace({ initialTab = "catalog" }: { initialTab?: "cat
     queryFn: () => api.get<{ headline_rates: HeadlineRate[] }>(`/admin/headline-rates?brand_id=${encodeURIComponent(form.id)}`), enabled: !!form.id });
   const market = markets.data?.markets.find((item) => item.code === country);
   const selectedHeadline = headlineRates.data?.headline_rates.find((rate) => rate.market_code === country && rate.is_active);
+  const detailedCountries = useMemo<DetailedCountry[]>(() => {
+    const grouped = new Map<string, DetailedCountry>();
+    for (const rate of detailedRates.data?.detailed_rates ?? []) {
+      if (rate.market_code !== country || rate.archived_at) continue;
+      const code = rate.card_country.trim().toUpperCase();
+      if (!code) continue;
+      const entry = grouped.get(code) ?? { code, isActive: false };
+      if (rate.submission_type === "physical") entry.physical = rate;
+      if (rate.submission_type === "ecode") entry.ecode = rate;
+      entry.isActive = !!(entry.physical?.is_active || entry.ecode?.is_active);
+      grouped.set(code, entry);
+    }
+    return [...grouped.values()].sort((a, b) => a.code.localeCompare(b.code));
+  }, [detailedRates.data?.detailed_rates, country]);
+  const selectedDetailed = detailedCountries.find((item) => item.code === selectedDetailedCountry);
   useEffect(() => {
     setHeadlineAmount(minorToGroupedInput(selectedHeadline?.rate_minor_per_unit, market?.minor_digits ?? 2));
   }, [form.id, country, selectedHeadline?.id, selectedHeadline?.rate_minor_per_unit, market?.minor_digits]);
@@ -217,27 +232,12 @@ export function CatalogWorkspace({ initialTab = "catalog" }: { initialTab?: "cat
     return (brands.data?.brands ?? []).filter((brand) => !term || [brand.name, brand.category, ...(brand.countries ?? [])]
       .some((value) => value.toLowerCase().includes(term)));
   }, [brands.data?.brands, catalogSearch]);
-  const detailedCountries = useMemo<DetailedCountry[]>(() => {
-    const grouped = new Map<string, DetailedCountry>();
-    for (const rate of detailedRates.data?.detailed_rates ?? []) {
-      if (rate.market_code !== country || rate.archived_at) continue;
-      const code = rate.card_country.trim().toUpperCase();
-      if (!code) continue;
-      const entry = grouped.get(code) ?? { code, isActive: false };
-      if (rate.submission_type === "physical") entry.physical = rate;
-      if (rate.submission_type === "ecode") entry.ecode = rate;
-      entry.isActive = !!(entry.physical?.is_active || entry.ecode?.is_active);
-      grouped.set(code, entry);
-    }
-    return [...grouped.values()].sort((a, b) => a.code.localeCompare(b.code));
-  }, [detailedRates.data?.detailed_rates, country]);
-  const selectedDetailed = detailedCountries.find((item) => item.code === selectedDetailedCountry);
   const popularRows = popularCards.data?.popular_cards ?? [];
   const activeMarkets = (markets.data?.markets ?? []).filter((item) => item.is_active);
   const selectedPopular = popularRows.find((item) => item.brand_id === popularDraft.brandId);
   const popularBonusMarket = activeMarkets.find((item) => item.code === popularDraft.bonusMarketCode);
   const popularBrandIds = new Set(popularRows.map((item) => item.brand_id));
-  const addablePopularBrands = (brands.data?.brands ?? []).filter((brand) => brand.is_active && !brand.archived_at && !popularBrandIds.has(brand.id));
+  const addablePopularBrands = (brands.data?.brands ?? []).filter((brand) => brand.is_active && brand.is_tradable && !brand.archived_at && !popularBrandIds.has(brand.id));
 
   const run = async (work: () => Promise<void>, success: string) => {
     setBusy(true);

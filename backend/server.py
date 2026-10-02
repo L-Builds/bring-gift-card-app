@@ -1898,15 +1898,22 @@ async def admin_add_popular_card(x: PopularCardAddIn, admin: dict = Depends(requ
         raise HTTPException(404, "Catalog card not found")
     if not brand.get("is_active"):
         raise HTTPException(409, "Activate this catalog card before adding it to Popular Gift Cards")
-    if x.brand_id not in await tradable_brand_ids():
-        raise HTTPException(409, "Set an active trading rate for this card before adding it to Popular Gift Cards")
     active_markets = set(await db.markets.distinct("code", {"is_active": True}))
+    detailed_markets = set(await db.detailed_rates.distinct("market_code", {
+        "brand_id": x.brand_id, "market_code": {"$in": sorted(active_markets)},
+        "is_active": True, "archived_at": None,
+        "submission_type": {"$in": brand.get("submission_types") or ["physical", "ecode"]},
+        "rate_minor_per_unit": {"$gt": 0},
+    }))
+    if not detailed_markets:
+        raise HTTPException(409, "Set an active trading rate for this card before adding it to Popular Gift Cards")
     headline = await db.headline_rates.find_one({
-        "brand_id": x.brand_id, "is_active": True,
-        "market_code": {"$in": sorted(active_markets)},
-    }) if active_markets else None
+        "brand_id": x.brand_id, "is_active": True, "archived_at": None,
+        "rate_minor_per_unit": {"$gt": 0},
+        "market_code": {"$in": sorted(detailed_markets)},
+    })
     if not headline:
-        raise HTTPException(409, "Set an active headline/display rate for this card before adding it to Popular Gift Cards")
+        raise HTTPException(409, "Set an active headline/display rate in the same market as its trading rate")
 
     async def add(session):
         existing = await db.popular_cards.find_one({"brand_id": x.brand_id}, session=session, for_update=True)

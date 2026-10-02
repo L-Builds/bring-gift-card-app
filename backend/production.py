@@ -205,10 +205,13 @@ class Production:
 
         per_unit = int(rate["rate_minor_per_unit"])
         unit_payout = per_unit * face_value
+        payout_minor = unit_payout * quantity
+        if payout_minor > 2**63 - 1:
+            raise HTTPException(422, "Quoted payout exceeds the supported amount")
         return {
             "rate_id": rate["id"], "rate_version": rate["version"], "currency": market["currency"],
             "minor_digits": market["minor_digits"], "market_code": market["code"],
-            "unit_payout_minor": unit_payout, "payout_minor": unit_payout * quantity,
+            "unit_payout_minor": unit_payout, "payout_minor": payout_minor,
             "rate_minor_per_unit": per_unit,
             # Compatibility snapshot field retained for older trade/receipt readers.
             "rate_minor_per_usd": per_unit,

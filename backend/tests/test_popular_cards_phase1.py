@@ -112,6 +112,32 @@ async def test_popular_requires_active_headline_rate(http, actors):
         await http.delete(f"/api/admin/brands/{brand_id}", headers=actors[3])
 
 
+async def test_popular_requires_headline_and_trade_rate_in_same_market(http, actors):
+    created = await http.post("/api/admin/brands", headers=actors[3], json={
+        "name": "Split Market " + uuid.uuid4().hex[:6],
+        "is_active": True,
+        "countries": ["US"],
+        "submission_types": ["physical"],
+    })
+    assert created.status_code == 200, created.text
+    brand_id = created.json()["id"]
+    try:
+        detailed = await http.post("/api/admin/detailed-rates/country", headers=actors[3], json={
+            "brand_id": brand_id, "market_code": "NG", "card_country": "US",
+            "physical_rate_minor_per_unit": 100000,
+        })
+        assert detailed.status_code == 200, detailed.text
+        headline = await http.post("/api/admin/headline-rates", headers=actors[3], json={
+            "brand_id": brand_id, "market_code": "US", "rate_minor_per_unit": 100,
+        })
+        assert headline.status_code == 200, headline.text
+        blocked = await http.post("/api/admin/popular-cards", headers=actors[3], json={"brand_id": brand_id})
+        assert blocked.status_code == 409
+        assert "same market" in blocked.text.lower()
+    finally:
+        await http.delete(f"/api/admin/brands/{brand_id}", headers=actors[3])
+
+
 async def test_popular_order_is_admin_controlled_and_public_list_follows_it(http, actors):
     first = await make_eligible(http, actors, "Popular Order A")
     second = await make_eligible(http, actors, "Popular Order B")

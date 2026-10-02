@@ -18,7 +18,7 @@ test("Home Popular Gift Cards uses the dedicated public collection and headline 
 });
 
 test("Popular section stays outside the guest-versus-balance branch and has no row chevrons", () => {
-  const source = read("app/(tabs)/index.tsx");
+  const source = read("app/(tabs)/index.tsx").replace(/\r\n/g, "\n");
   const balanceEnd = source.indexOf("        )}\n\n        <View style={styles.sectionCard}>");
   assert.ok(balanceEnd > 0, "Popular section must follow the shared guest/auth hero-or-balance block");
   const listStart = source.indexOf("{popularCards.map");

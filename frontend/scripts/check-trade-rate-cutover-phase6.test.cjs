@@ -25,7 +25,9 @@ test("Phase 6 payout is card value times detailed rate per unit, with quantity p
   const block = production.slice(production.indexOf("async def quote("), production.indexOf("async def provider("));
   assert.match(block, /per_unit = int\(rate\["rate_minor_per_unit"\]\)/);
   assert.match(block, /unit_payout = per_unit \* face_value/);
-  assert.match(block, /"payout_minor": unit_payout \* quantity/);
+  assert.match(block, /payout_minor = unit_payout \* quantity/);
+  assert.match(block, /"payout_minor": payout_minor/);
+  assert.match(block, /payout_minor > 2\*\*63 - 1/);
   assert.match(block, /"card_country": country/);
   assert.match(block, /"submission_type": submission_type/);
 });

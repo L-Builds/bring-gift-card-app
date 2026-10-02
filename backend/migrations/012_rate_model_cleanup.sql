@@ -133,7 +133,6 @@ WITH normalized AS (
         COUNT(*) AS legacy_row_count,
         COUNT(DISTINCT rate_minor_per_unit) AS distinct_rate_count
     FROM normalized
-    WHERE rate_minor_per_unit IS NOT NULL
     GROUP BY brand_id, market_code, card_country, submission_type
     HAVING COUNT(rate_minor_per_unit) = COUNT(*)
        AND COUNT(DISTINCT rate_minor_per_unit) = 1
