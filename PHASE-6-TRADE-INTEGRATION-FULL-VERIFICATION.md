@@ -19,25 +19,20 @@ Phase 6 cuts new Trade pricing over to the simplified current-rate model establi
 
 The migration contains no `DELETE`, `DROP`, `TRUNCATE`, or rewrite of legacy `card_rates` history.
 
-## Verification performed in this workspace
+## Verification after the 2 October 2026 stabilization
 
-- Frontend regression suite: **92/92 passed**.
-- Actual `Production.quote` execution with a fake repository that raises if legacy `card_rates` is accessed: **passed**.
-  - Verified exact country normalization.
-  - Verified detailed-rate lookup.
-  - Verified row-lock request.
-  - Verified `rate per unit × card value × quantity` payout.
-- Phase 1–6 schema/history static checks: **passed**.
-- Backend Python source compilation: **passed**.
-- Changed TypeScript/TSX syntax transpilation: **passed**.
-- Existing responsive/admin/permissions regression checks included in the 92/92 run: **passed**.
-- Added a PostgreSQL end-to-end Phase 6 acceptance test covering headline, Popular, All Cards discovery, detailed rates, quote math, stale-rate rejection, trade creation, country removal, and history preservation.
+- The configured backend PostgreSQL suite passed **86 tests** on a disposable local database after the rate-page and trade-display amendments. Four existing FastAPI `on_event` deprecation warnings remain.
+- Frontend `npm run typecheck`, `npm run check:web` (**93/93**), and `npm run build:web` passed. The web export uses the same-origin `/api` route.
+- In a local browser at a **320 px** viewport, a test-only API fixture showed All Cards, the left country rail, both Physical/Code controls, and the selected per-unit rate without clipping. Switching to Code changed the displayed amount. The fixture amounts were never added to production or seed data.
+- Migrations `011`–`013` applied transactionally to a Neon clone. The cloned latest API passed customer and General Manager login/authorization and rate/catalog reads. Production Neon and the rolled-back production release were not cut over.
+- The Phase 6 database acceptance test covers headline/Popular discovery, detailed-rate quote math, stale-rate rejection, trade creation, country removal, historical snapshots, and accurate `is_tradable` state when detailed rates are removed.
 
-## Verification not possible in this workspace
+## Remaining verification and release decision
 
-- PostgreSQL-backed pytest could not execute because `TEST_DATABASE_URL` / a disposable PostgreSQL test database is not available. The shared pytest harness fails at import without that variable; production data was not used as a test target.
-- Full dependency-backed TypeScript typecheck and Expo web build could not execute because `node_modules` is not included in the project. An `npm ci` attempt did not complete; the partial install was removed. The build consequently reports missing `expo/package.json`, and the full typecheck reports missing React/Expo modules/base config. Changed TS/TSX files were syntax-checked independently.
-- No live-device/browser visual acceptance run was possible for mobile layout. Existing static responsive regression checks passed.
+- The local browser fixture did not test a complete authenticated Trade submission, the admin editor visually, external payout providers, email/Google integrations, or real mobile devices.
+- Running `pytest tests` bypasses `pytest.ini` and collects older files outside the configured suite. Those files use synchronous calls against an async HTTP fixture, require an independent server on port 8000, or need optional Mongo tooling. They fail in this local setup; the configured `python -m pytest` suite above passes. No production code was changed to satisfy those older harness assumptions.
+- The legacy Apple US rows have conflicting per-unit amounts, so safe migration does not create an approved simplified Physical/Code detailed rate. Production must remain on the restored release until management supplies those rates or explicitly accepts Apple trading being unavailable under the new model.
+- The legacy `card_value_usd` field and `$` face-value review remain for all card countries. Non-US card value currency semantics were not defined by the Phase 6 examples; resolve them before enabling those card-country rates.
 
 ## Phase boundary
 

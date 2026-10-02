@@ -57,7 +57,9 @@ test("Phase 6 separates All Cards discovery from current detailed-rate tradabili
   assert.match(server, /async def rate_view_brand_ids/);
   assert.match(server, /db\.headline_rates\.distinct/);
   assert.match(server, /purpose: Literal\["trade", "rates"\]/);
-  assert.match(server, /rate_view_brand_ids\(market_code\) if purpose == "rates" else tradable_brand_ids\(market_code\)/);
+  assert.match(server, /tradable_ids = await tradable_brand_ids\(market_code\)/);
+  assert.match(server, /rate_view_brand_ids\(market_code\) if purpose == "rates" else tradable_ids/);
+  assert.match(server, /brand_response\(b, tradable=b\["id"\] in tradable_ids\)/);
   assert.match(server, /async def tradable_brand_ids/);
   assert.match(server, /db\.detailed_rates\.distinct/);
   assert.doesNotMatch(server, /async def tradable_brand_ids[\s\S]{0,800}return await rate_view_brand_ids\(market_code\)/);

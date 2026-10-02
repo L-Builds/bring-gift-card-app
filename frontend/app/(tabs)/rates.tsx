@@ -120,6 +120,7 @@ export default function Rates() {
     (headlines.data?.headline_rates ?? []).find((rate) => rate.brand_id === brandId && rate.is_active) ?? null;
 
   const selectedData = selectedBrand ? [selectedBrand] : filteredBrands;
+  const visibleData = failed ? [] : selectedData;
 
   return <View style={{ flex: 1, backgroundColor: colors.screenBg }}>
     <View style={[styles.blueHeader, { paddingTop: insets.top + spacing.sm }]}>
@@ -137,10 +138,10 @@ export default function Rates() {
     </View>
 
     <FlatList<Brand>
-      data={selectedData}
+      data={visibleData}
       keyExtractor={(item) => item.id}
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={[styles.page, selectedData.length === 0 && styles.emptyPage]}
+      contentContainerStyle={[styles.page, visibleData.length === 0 && styles.emptyPage]}
       ListHeaderComponent={<>
         <View style={styles.titleWrap}>
           <Text style={styles.title}>Gift Card Rates</Text>
@@ -186,7 +187,7 @@ export default function Rates() {
 
         if (detailed.isLoading) return <LoadingView />;
         if (detailed.isError) return <QueryErrorView title="Could not load this card's rates" onRetry={() => void detailed.refetch()} retrying={detailed.isRefetching} />;
-        if (!countries.length) return <EmptyState icon="pricetag-outline" title="No rates published" subtitle="There are no active detailed rates for this card and payout market yet." />;
+        if (!countries.length) return <EmptyState icon="pricetag-outline" title="Rates coming soon" subtitle="This card is not available to trade right now. Please check back later." />;
 
         return <View style={styles.detailWorkspace} testID="individual-card-rate-workspace">
           <View style={[styles.countryRail, compact && styles.countryRailCompact]}>
@@ -201,29 +202,29 @@ export default function Rates() {
             </Pressable>)}
           </View>
 
-          <View style={styles.ratePanel}>
+          <View style={[styles.ratePanel, compact && styles.ratePanelCompact]}>
             <View style={styles.typeToggle} testID="rates-type-toggle">
               <Pressable
                 onPress={() => physicalRate && setSelectedType("physical")}
                 disabled={!physicalRate}
-                style={[styles.typeButton, selectedType === "physical" && styles.typeButtonActive, !physicalRate && styles.typeButtonDisabled]}
+                style={[styles.typeButton, compact && styles.typeButtonCompact, selectedType === "physical" && styles.typeButtonActive, !physicalRate && styles.typeButtonDisabled]}
                 testID="rates-type-physical"
               >
-                <Text style={[styles.typeButtonText, selectedType === "physical" && styles.typeButtonTextActive, !physicalRate && styles.typeButtonTextDisabled]}>PHYSICAL</Text>
+                <Text style={[styles.typeButtonText, compact && styles.typeButtonTextCompact, selectedType === "physical" && styles.typeButtonTextActive, !physicalRate && styles.typeButtonTextDisabled]}>PHYSICAL</Text>
               </Pressable>
               <Pressable
                 onPress={() => codeRate && setSelectedType("ecode")}
                 disabled={!codeRate}
-                style={[styles.typeButton, selectedType === "ecode" && styles.typeButtonActive, !codeRate && styles.typeButtonDisabled]}
+                style={[styles.typeButton, compact && styles.typeButtonCompact, selectedType === "ecode" && styles.typeButtonActive, !codeRate && styles.typeButtonDisabled]}
                 testID="rates-type-code"
               >
-                <Text style={[styles.typeButtonText, selectedType === "ecode" && styles.typeButtonTextActive, !codeRate && styles.typeButtonTextDisabled]}>CODE</Text>
+                <Text style={[styles.typeButtonText, compact && styles.typeButtonTextCompact, selectedType === "ecode" && styles.typeButtonTextActive, !codeRate && styles.typeButtonTextDisabled]}>CODE</Text>
               </Pressable>
             </View>
 
             <View style={styles.rateDisplay}>
               <Text style={styles.rateLabel}>Rate per unit</Text>
-              <Text style={styles.rateValue} testID="rates-per-unit-value">
+              <Text style={[styles.rateValue, compact && styles.rateValueCompact]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65} testID="rates-per-unit-value">
                 {selectedRate && market ? formatMoney(selectedRate.rate_minor_per_unit, market.currency, market.minor_digits) : "Rate unavailable"}
               </Text>
             </View>
@@ -279,14 +280,18 @@ const useStyles = makeStyles((colors) => ({
   countryItemText: { color: colors.onSurfaceSecondary, fontSize: 13, fontWeight: "700" },
   countryItemTextActive: { color: colors.onSurface, fontWeight: "800" },
   ratePanel: { flex: 1, minWidth: 0, padding: spacing.lg },
+  ratePanelCompact: { padding: spacing.md },
   typeToggle: { flexDirection: "row", alignSelf: "flex-start", padding: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
   typeButton: { minHeight: 38, minWidth: 86, paddingHorizontal: 14, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
+  typeButtonCompact: { minWidth: 64, paddingHorizontal: spacing.sm },
   typeButtonActive: { backgroundColor: colors.brandPrimary },
   typeButtonDisabled: { opacity: 0.45 },
   typeButtonText: { color: colors.onSurfaceSecondary, fontSize: 11, fontWeight: "800", letterSpacing: 0.4 },
+  typeButtonTextCompact: { fontSize: 10 },
   typeButtonTextActive: { color: colors.onBrandPrimary },
   typeButtonTextDisabled: { color: colors.muted },
   rateDisplay: { flex: 1, justifyContent: "center", paddingVertical: spacing.xl },
   rateLabel: { color: colors.onSurfaceSecondary, fontSize: 13, fontWeight: "700" },
   rateValue: { marginTop: spacing.sm, color: colors.onSurface, fontSize: 30, fontWeight: "800" },
+  rateValueCompact: { fontSize: 24 },
 }));

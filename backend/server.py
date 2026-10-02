@@ -856,7 +856,8 @@ async def tradable_brand_ids(market_code: str = "") -> set[str]:
 
 @api.get("/brands")
 async def list_brands(popular: bool = False, category: str = "", q: str = "", market_code: str = "", purpose: Literal["trade", "rates"] = "trade"):
-    ids = await (rate_view_brand_ids(market_code) if purpose == "rates" else tradable_brand_ids(market_code))
+    tradable_ids = await tradable_brand_ids(market_code)
+    ids = await rate_view_brand_ids(market_code) if purpose == "rates" else tradable_ids
     if not ids:
         return {"brands": []}
     popular_order: list[str] = []
@@ -876,7 +877,7 @@ async def list_brands(popular: bool = False, category: str = "", q: str = "", ma
     if popular:
         positions = {brand_id: index for index, brand_id in enumerate(popular_order)}
         brands.sort(key=lambda brand: positions.get(brand["id"], 999))
-    return {"brands": [brand_response(b, tradable=True) for b in brands
+    return {"brands": [brand_response(b, tradable=b["id"] in tradable_ids) for b in brands
                        if b.get("submission_types", ["physical", "ecode"])][:200]}
 
 

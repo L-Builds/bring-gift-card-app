@@ -14,7 +14,7 @@ import { useToast } from "@/src/components/toast";
 import { useAuth } from "@/src/context/auth";
 import { api, uploadImage, ApiError } from "@/src/api/client";
 import { BrandIcon } from "@/src/components/brand-icon";
-import { formatNaira } from "@/src/lib/format";
+import { formatMoney } from "@/src/lib/format";
 import { normalizeTradeIntent } from "@/src/lib/trade-intent";
 
 type SubmissionType = "physical" | "ecode";
@@ -36,6 +36,8 @@ type QuoteData = {
   unit_payout_minor: number;
   rate_version: number;
   rate_minor_per_unit: number;
+  currency: string;
+  minor_digits: number;
   card_country: string;
   submission_type: SubmissionType;
 };
@@ -376,12 +378,12 @@ export default function Trade() {
             <View style={styles.payoutIcon}><Ionicons name="wallet" size={24} color={colors.success} /></View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.payoutLabel}>Estimated payout</Text>
-              <Text style={styles.payoutValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{quote.isError ? "Quote unavailable" : quote.isFetching ? "Checking quote…" : quote.data ? formatNaira(payout) : "—"}</Text>
+              <Text style={styles.payoutValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{quote.isError ? "Quote unavailable" : quote.isFetching ? "Checking quote…" : quote.data ? formatMoney(payout, quote.data.currency, quote.data.minor_digits) : "—"}</Text>
             </View>
           </View>
           <View style={styles.rateBox}>
             <Text style={styles.rateLabel}>Rate per unit</Text>
-            <Text style={styles.rateValue}>{quote.isError ? "Could not load a matching rate" : quote.data ? formatNaira(quote.data.rate_minor_per_unit) : "Select the card details and value"}</Text>
+            <Text style={styles.rateValue}>{quote.isError ? "Could not load a matching rate" : quote.data ? formatMoney(quote.data.rate_minor_per_unit, quote.data.currency, quote.data.minor_digits) : "Select the card details and value"}</Text>
           </View>
         </View>
         {quote.isError && <PrimaryButton title="Retry quote" variant="secondary" onPress={() => { void quote.refetch(); }} loading={quote.isRefetching} testID="trade-quote-retry" />}
@@ -493,8 +495,8 @@ export default function Trade() {
                 {!!country && <ReviewRow label="Country" valueText={country} />}
                 <ReviewRow label="Card value" valueText={`$${value}`} />
                 <ReviewRow label="Quantity" valueText={String(qty)} />
-                <ReviewRow label="Rate per unit" valueText={quote.data ? formatNaira(quote.data.rate_minor_per_unit) : ""} />
-                <ReviewRow label="Expected payout" valueText={formatNaira(payout)} />
+                <ReviewRow label="Rate per unit" valueText={quote.data ? formatMoney(quote.data.rate_minor_per_unit, quote.data.currency, quote.data.minor_digits) : ""} />
+                <ReviewRow label="Expected payout" valueText={quote.data ? formatMoney(payout, quote.data.currency, quote.data.minor_digits) : ""} />
                 <ReviewRow label={type === "physical" ? "Card images" : "E-code"} valueText={type === "physical" ? `${images.length} uploaded` : "Entered securely"} />
                 {type === "ecode" && images.length > 0 && <ReviewRow label="Supporting images" valueText={`${images.length} uploaded`} />}
               </View>

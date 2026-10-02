@@ -32,6 +32,15 @@ test("Phase 6 payout is card value times detailed rate per unit, with quantity p
   assert.match(block, /"submission_type": submission_type/);
 });
 
+test("Phase 6 Trade displays payout in the quoted market currency", () => {
+  const trade = read("app/(tabs)/trade.tsx");
+  assert.match(trade, /currency: string;/);
+  assert.match(trade, /minor_digits: number;/);
+  assert.match(trade, /formatMoney\(payout, quote\.data\.currency, quote\.data\.minor_digits\)/);
+  assert.match(trade, /formatMoney\(quote\.data\.rate_minor_per_unit, quote\.data\.currency, quote\.data\.minor_digits\)/);
+  assert.doesNotMatch(trade, /formatNaira\(/);
+});
+
 test("Phase 6 old denomination rows are not deleted or used for new trade pricing", () => {
   const production = fs.readFileSync(path.join(backend, "production.py"), "utf8");
   const migration = fs.readFileSync(path.join(backend, "migrations", "013_trade_rate_cutover.sql"), "utf8");

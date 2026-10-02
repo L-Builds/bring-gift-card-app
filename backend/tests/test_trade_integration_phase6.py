@@ -63,6 +63,7 @@ async def test_phase6_rate_chain_and_trade_cutover(http, actors):
         rate_brands = await http.get("/api/brands?market_code=NG&purpose=rates")
         assert rate_brands.status_code == 200, rate_brands.text
         assert brand_id in {row["id"] for row in rate_brands.json()["brands"]}
+        assert next(row for row in rate_brands.json()["brands"] if row["id"] == brand_id)["is_tradable"] is True
         trade_brands = await http.get("/api/brands?market_code=NG")
         assert trade_brands.status_code == 200, trade_brands.text
         assert brand_id in {row["id"] for row in trade_brands.json()["brands"]}
@@ -156,6 +157,7 @@ async def test_phase6_rate_chain_and_trade_cutover(http, actors):
         assert brand_id not in {row["id"] for row in after_remove_trade.json()["brands"]}
         after_remove_rates = await http.get("/api/brands?market_code=NG&purpose=rates")
         assert brand_id in {row["id"] for row in after_remove_rates.json()["brands"]}
+        assert next(row for row in after_remove_rates.json()["brands"] if row["id"] == brand_id)["is_tradable"] is False
         assert await s.db.trades.find_one({"id": saved_trade["id"]}) is not None
         assert await s.db.card_rates.find_one({"id": legacy.json()["id"]}) is not None
     finally:
