@@ -296,6 +296,17 @@ async def test_zero_decimal_trade_receipt_uses_wallet_precision(http,actors):
     assert {'label':'Payout per card','value':'XAF 1,234 per card'} in receipt['lines']
 
 
+async def test_naira_trade_receipt_uses_symbol(http,actors):
+    submitted,_=await trade(http,actors)
+    approved=await http.post(f'/api/admin/trades/{submitted["id"]}/approve',headers=actors[3],json={})
+    assert approved.status_code==200,approved.text
+    response=await http.get(f'/api/receipts/trade/{submitted["id"]}',headers=actors[2])
+    assert response.status_code==200,response.text
+    receipt=response.json()
+    assert receipt['currency']=='NGN'
+    assert {'label':'Payout per card','value':'₦8,500.00 per card'} in receipt['lines']
+
+
 async def test_disabling_rate_and_card_blocks_quotes(http,actors):
     t,body=await trade(http,actors)
     assert (await http.post(f'/api/admin/detailed-rates/{t["brand_id"]}/NG/US/disable',headers=actors[3])).status_code==200

@@ -12,7 +12,7 @@ import { ScreenBackground, LoadingView } from "@/src/components/ui";
 import { BrandIcon } from "@/src/components/brand-icon";
 import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
-import { formatNaira } from "@/src/lib/format";
+import { formatMoney, formatNaira } from "@/src/lib/format";
 import { tradeAuthHref, tradeHref } from "@/src/lib/trade-intent";
 
 type Brand = { id: string; name: string; color: string; rate_kobo_per_usd: number; category: string; has_logo?: boolean; logo_version?: string };
@@ -43,17 +43,7 @@ type PopularCard = {
 function currencyAmount(minor: number, currency: string, digits: number, trimZeroDecimals = false) {
   const value = (minor || 0) / 10 ** digits;
   const showDecimals = trimZeroDecimals && Number.isInteger(value) ? 0 : digits;
-  try {
-    return new Intl.NumberFormat("en", {
-      style: "currency",
-      currency,
-      currencyDisplay: "narrowSymbol",
-      minimumFractionDigits: showDecimals,
-      maximumFractionDigits: showDecimals,
-    }).format(value);
-  } catch {
-    return `${currency} ${value.toFixed(showDecimals)}`;
-  }
+  return formatMoney(minor, currency, digits, { decimals: showDecimals });
 }
 
 export default function Home() {

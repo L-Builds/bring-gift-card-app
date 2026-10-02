@@ -1451,6 +1451,8 @@ async def trade_receipt(trade_id: str, user: dict = Depends(current_user)):
     minor_digits = int(t.get("minor_digits", 2))
     unit_minor = int(t.get("unit_payout_minor") or t["rate_kobo_per_usd"] * t["card_value_usd"])
     unit_amount = Decimal(unit_minor) / (Decimal(10) ** minor_digits)
+    currency = t.get("currency", "NGN")
+    unit_display = f"₦{unit_amount:,.{minor_digits}f}" if currency == "NGN" else f"{currency} {unit_amount:,.{minor_digits}f}"
     return {
         "kind": "trade", "title": "Trade Receipt", "receipt_no": f"RCT-{t['order_id']}", "ref": t["order_id"],
         "status": "APPROVED", "verification_code": _receipt_code("trade", t["order_id"]),
@@ -1460,9 +1462,9 @@ async def trade_receipt(trade_id: str, user: dict = Depends(current_user)):
             {"label": "Gift card", "value": t["brand_name"]},
             {"label": "Card value", "value": f"${t['card_value_usd']:,} × {t['quantity']}"},
             {"label": "Type", "value": "E-code" if t["submission_type"] == "ecode" else "Physical card"},
-            {"label": "Payout per card", "value": f"{t.get('currency', 'NGN')} {unit_amount:,.{minor_digits}f} per card"},
+            {"label": "Payout per card", "value": f"{unit_display} per card"},
         ] + ([{"label": "Reviewer note", "value": t["admin_note"]}] if t.get("admin_note") else []),
-        "currency": t.get("currency", "NGN"), "minor_digits": minor_digits,
+        "currency": currency, "minor_digits": minor_digits,
         "total_kobo": payout, "total_label": "Credited to wallet",
         "company": {"name": "Bring Gift Card", "support": "hello@bringgiftcard.com"},
     }

@@ -8,6 +8,7 @@ import { makeStyles, useTheme, radius, spacing } from "@/src/theme";
 import { useSideMenu } from "@/src/components/side-menu";
 import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
+import { currencyMark } from "@/src/lib/format";
 
 export function AppHeader({
   title,
@@ -69,7 +70,7 @@ export function AppHeader({
                 <View style={{ flex: 1, backgroundColor: "#008751" }} />
               </View>
             )}
-            <Text style={styles.currencyText}>{displayedCurrency}</Text>
+            <Text style={styles.currencyText}>{currencyMark(displayedCurrency)}</Text>
           </View>
         )}
         {showBell && (

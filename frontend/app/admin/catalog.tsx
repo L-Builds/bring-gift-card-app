@@ -54,6 +54,7 @@ const blankPopularDraft: PopularDraft = {
 };
 
 function currencySymbol(currency: string) {
+  if (currency === "NGN") return "₦";
   try {
     return new Intl.NumberFormat("en", { style: "currency", currency, currencyDisplay: "narrowSymbol" })
       .formatToParts(0).find((part) => part.type === "currency")?.value || currency;
@@ -591,7 +592,7 @@ export function CatalogWorkspace({ initialTab = "catalog" }: { initialTab?: "cat
               <Pressable testID="popular-bonus-currency" disabled={!popularDraft.bonusEnabled} onPress={() => setPopularCurrencyOpen(true)} style={[styles.selectorControl, !popularDraft.bonusEnabled && styles.disabledAction]}>
                 <View style={styles.selectorValueRow}>
                   <View style={styles.currencyBadge}><Text style={styles.currencyBadgeText}>{popularBonusMarket ? currencySymbol(popularBonusMarket.currency) : "¤"}</Text></View>
-                  <View style={{ flex: 1 }}><Text style={styles.selectorPrimary}>{popularBonusMarket ? `${popularBonusMarket.name} · ${popularBonusMarket.currency}` : "Select active market currency"}</Text><Text style={styles.selectorSecondary}>Currency options come from active Markets.</Text></View>
+                  <View style={{ flex: 1 }}><Text style={styles.selectorPrimary}>{popularBonusMarket ? `${popularBonusMarket.name} · ${currencySymbol(popularBonusMarket.currency)}` : "Select active market currency"}</Text><Text style={styles.selectorSecondary}>Currency options come from active Markets.</Text></View>
                   <Ionicons name="chevron-down" size={18} color={colors.onSurfaceSecondary} />
                 </View>
               </Pressable>
@@ -620,7 +621,7 @@ export function CatalogWorkspace({ initialTab = "catalog" }: { initialTab?: "cat
       <SelectorSheet visible={popularCurrencyOpen} title="Bonus currency" onClose={() => setPopularCurrencyOpen(false)}>
         {activeMarkets.map((item) => <Pressable key={item.code} onPress={() => { setPopularDraft((current) => ({ ...current, bonusMarketCode: item.code, bonusAmount: "" })); setPopularCurrencyOpen(false); }} style={[styles.selectorOption, popularDraft.bonusMarketCode === item.code && styles.selectorOptionActive]} testID={`popular-currency-${item.code}`}>
           <View style={styles.currencyBadge}><Text style={styles.currencyBadgeText}>{currencySymbol(item.currency)}</Text></View>
-          <View style={{ flex: 1 }}><Text style={styles.tablePrimary}>{item.name}</Text><Text style={styles.tableSecondary}>{item.currency} · {currencySymbol(item.currency)}</Text></View>
+          <View style={{ flex: 1 }}><Text style={styles.tablePrimary}>{item.name}</Text><Text style={styles.tableSecondary}>{currencySymbol(item.currency)}</Text></View>
           {popularDraft.bonusMarketCode === item.code && <Ionicons name="checkmark-circle" size={20} color={colors.brandPrimary} />}
         </Pressable>)}
       </SelectorSheet>
@@ -654,7 +655,7 @@ export function CatalogWorkspace({ initialTab = "catalog" }: { initialTab?: "cat
               <View style={styles.selectorPlaceholderIcon}><Ionicons name="globe-outline" size={18} color={colors.brandPrimary} /></View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.selectorPrimary}>{market?.name || "Select payout market"}</Text>
-                <Text style={styles.selectorSecondary}>{market ? `${market.currency}${market.is_active ? "" : " · Paused"}` : "Choose a market"}</Text>
+                <Text style={styles.selectorSecondary}>{market ? `${currencySymbol(market.currency)}${market.is_active ? "" : " · Paused"}` : "Choose a market"}</Text>
               </View>
               <Ionicons name="chevron-down" size={18} color={colors.onSurfaceSecondary} />
             </View>
@@ -828,7 +829,7 @@ export function CatalogWorkspace({ initialTab = "catalog" }: { initialTab?: "cat
       <SelectorSheet visible={marketPickerOpen} title="Select payout market" onClose={() => setMarketPickerOpen(false)}>
         {(markets.data?.markets ?? []).map((item) => <Pressable key={item.code} testID={`rate-market-${item.code}`} onPress={() => { setCountry(item.code); setSelectedDetailedCountry(""); setPendingDetailedCountry(""); setMarketPickerOpen(false); }} style={[styles.selectorOption, country === item.code && styles.selectorOptionActive]}>
           <View style={styles.selectorPlaceholderIcon}><Ionicons name="globe-outline" size={18} color={colors.brandPrimary} /></View>
-          <View style={{ flex: 1 }}><Text style={styles.tablePrimary}>{item.name}</Text><Text style={styles.tableSecondary}>{item.code} · {item.currency}{item.is_active ? "" : " · Paused"}</Text></View>
+          <View style={{ flex: 1 }}><Text style={styles.tablePrimary}>{item.name}</Text><Text style={styles.tableSecondary}>{item.code} · {currencySymbol(item.currency)}{item.is_active ? "" : " · Paused"}</Text></View>
           {country === item.code && <Ionicons name="checkmark-circle" size={20} color={colors.brandPrimary} />}
         </Pressable>)}
       </SelectorSheet>

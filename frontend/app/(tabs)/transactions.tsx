@@ -8,7 +8,7 @@ import { AppHeader } from "@/src/components/app-header";
 import { ScreenBackground, StatusBadge, LoadingView, EmptyState, PrimaryButton, QueryErrorView } from "@/src/components/ui";
 import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
-import { formatNaira, formatDate, toMinor } from "@/src/lib/format";
+import { currencyMark, formatNaira, formatDate, toMinor } from "@/src/lib/format";
 import { useToast } from "@/src/components/toast";
 import { BrandIcon } from "@/src/components/brand-icon";
 
@@ -239,12 +239,12 @@ export default function Transactions() {
               <Text style={styles.groupLabel}>Amount range</Text>
               <View style={styles.rangeRow}>
                 <View style={styles.inputBox}>
-                  <Text style={styles.currencyMark}>{currency}</Text>
+                  <Text style={styles.currencyMark}>{currencyMark(currency)}</Text>
                   <TextInput style={styles.rangeInput} placeholder="Min amount" placeholderTextColor={colors.muted} value={tmpMinAmount} onChangeText={(v) => setTmpMinAmount(v.replace(/[^0-9.]/g, ""))} keyboardType="decimal-pad" testID="txn-filter-min" />
                 </View>
                 <Text style={styles.rangeDash}>-</Text>
                 <View style={styles.inputBox}>
-                  <Text style={styles.currencyMark}>{currency}</Text>
+                  <Text style={styles.currencyMark}>{currencyMark(currency)}</Text>
                   <TextInput style={styles.rangeInput} placeholder="Max amount" placeholderTextColor={colors.muted} value={tmpMaxAmount} onChangeText={(v) => setTmpMaxAmount(v.replace(/[^0-9.]/g, ""))} keyboardType="decimal-pad" testID="txn-filter-max" />
                 </View>
               </View>

@@ -4,8 +4,16 @@
 let currentCurrency = "NGN";
 let currentDigits = 2;
 export function setDisplayCurrency(currency: string, digits: number) { currentCurrency = currency; currentDigits = digits; }
+export function currencyMark(currency: string): string { return currency === "NGN" ? "₦" : currency; }
 export function formatMoney(minor: number, currency = currentCurrency, digits = currentDigits, opts: { decimals?: number; showSign?: boolean } = {}): string {
-  return new Intl.NumberFormat("en", { style: "currency", currency, currencyDisplay: currency === "NGN" ? "narrowSymbol" : "symbol", minimumFractionDigits: opts.decimals ?? digits, maximumFractionDigits: opts.decimals ?? digits, signDisplay: opts.showSign ? "exceptZero" : "auto" }).format((minor || 0) / 10 ** digits);
+  const amount = (minor || 0) / 10 ** digits;
+  const decimals = opts.decimals ?? digits;
+  if (currency === "NGN") {
+    const number = new Intl.NumberFormat("en", { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(Math.abs(amount));
+    const sign = amount < 0 ? "-" : opts.showSign && amount > 0 ? "+" : "";
+    return `${sign}₦${number}`;
+  }
+  return new Intl.NumberFormat("en", { style: "currency", currency, currencyDisplay: "symbol", minimumFractionDigits: decimals, maximumFractionDigits: decimals, signDisplay: opts.showSign ? "exceptZero" : "auto" }).format(amount);
 }
 // Compatibility name for existing screens; values are minor units of the account currency.
 export function formatNaira(minor: number, opts: { decimals?: number; showSign?: boolean } = {}): string { return formatMoney(minor, currentCurrency, currentDigits, opts); }

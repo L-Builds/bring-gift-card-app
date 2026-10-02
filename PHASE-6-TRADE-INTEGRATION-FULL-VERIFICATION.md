@@ -21,17 +21,17 @@ The migration contains no `DELETE`, `DROP`, `TRUNCATE`, or rewrite of legacy `ca
 
 ## Verification after the 2 October 2026 stabilization
 
-- The configured backend PostgreSQL suite passed **86 tests** on a disposable local database after the rate-page and trade-display amendments. Four existing FastAPI `on_event` deprecation warnings remain.
+- The configured backend PostgreSQL suite passed **87 tests** on a disposable local database after the rate-page, trade-display, and naira-symbol amendments. Four existing FastAPI `on_event` deprecation warnings remain.
 - Frontend `npm run typecheck`, `npm run check:web` (**93/93**), and `npm run build:web` passed. The web export uses the same-origin `/api` route.
 - In a local browser at a **320 px** viewport, a test-only API fixture showed All Cards, the left country rail, both Physical/Code controls, and the selected per-unit rate without clipping. Switching to Code changed the displayed amount. The fixture amounts were never added to production or seed data.
-- Migrations `011`–`013` applied transactionally to a Neon clone. The cloned latest API passed customer and General Manager login/authorization and rate/catalog reads. Production Neon and the rolled-back production release were not cut over.
+- Migrations `011`–`013` applied transactionally to a Neon clone. The cloned latest API passed customer and General Manager login/authorization and rate/catalog reads. A separate live deployment report records the production cutover.
 - The Phase 6 database acceptance test covers headline/Popular discovery, detailed-rate quote math, stale-rate rejection, trade creation, country removal, historical snapshots, and accurate `is_tradable` state when detailed rates are removed.
 
 ## Remaining verification and release decision
 
 - The local browser fixture did not test a complete authenticated Trade submission, the admin editor visually, external payout providers, email/Google integrations, or real mobile devices.
 - Running `pytest tests` bypasses `pytest.ini` and collects older files outside the configured suite. Those files use synchronous calls against an async HTTP fixture, require an independent server on port 8000, or need optional Mongo tooling. They fail in this local setup; the configured `python -m pytest` suite above passes. No production code was changed to satisfy those older harness assumptions.
-- The legacy Apple US rows have conflicting per-unit amounts, so safe migration does not create an approved simplified Physical/Code detailed rate. Production must remain on the restored release until management supplies those rates or explicitly accepts Apple trading being unavailable under the new model.
+- The legacy Apple US rows have conflicting per-unit amounts, so safe migration does not create an approved simplified Physical/Code detailed rate. Apple trading remains unavailable under the new model until management publishes the actual Physical and Code rates. No example payout value is seeded.
 - The legacy `card_value_usd` field and `$` face-value review remain for all card countries. Non-US card value currency semantics were not defined by the Phase 6 examples; resolve them before enabling those card-country rates.
 
 ## Phase boundary

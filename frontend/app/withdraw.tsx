@@ -42,7 +42,7 @@ export default function Withdraw() {
   useEffect(()=>{requestKey.current=`wd_${Date.now()}_${Math.random().toString(36).slice(2)}`;},[amount,selected]);
   const balance = wallet?.available_balance_kobo ?? 0;
   const accounts = accData?.accounts ?? [];
-  const currencyPrefix = user?.currency === "NGN" ? "₦" : (user?.currency || "NGN");
+  const currencyPrefix = user?.currency === "NGN" ? "₦" : (user?.currency || "₦");
   const amountMinor = toMinor(amount, user?.minor_digits ?? 2);
 
   useEffect(() => {

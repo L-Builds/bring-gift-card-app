@@ -16,6 +16,7 @@ import { Modal, ScrollView } from "react-native";
 import { api, ApiError } from "@/src/api/client";
 import { startGoogleSignIn } from "@/src/lib/google-auth";
 import { afterAuthHref, tradeAuthHref, type TradeIntent } from "@/src/lib/trade-intent";
+import { currencyMark } from "@/src/lib/format";
 
 function Input({ icon, ...props }: any) { const styles = useStyles(); const {colors} = useTheme(); return (
     <View style={styles.input}>
@@ -107,8 +108,8 @@ export default function Signup() {
         </View>
 
         <View style={styles.card}>
-          <Pressable style={[styles.input, styles.countryField]} onPress={()=>setCountryOpen(true)} testID="signup-country"><Text style={styles.countryText}>{market ? `${market.name} · ${market.currency}` : "Select country / wallet currency"}</Text></Pressable>
-          <Modal visible={countryOpen} transparent animationType="slide" onRequestClose={()=>setCountryOpen(false)}><View style={{flex:1,justifyContent:"center",backgroundColor:"#0008",padding:24}}><ScrollView style={{backgroundColor:"white",borderRadius:20,maxHeight:500}}>{markets.error && <Text style={{padding:18}}>Could not load available countries. Please try again.</Text>}{!markets.isLoading && !markets.error && !markets.data?.markets.length && <Text style={{padding:18}}>No signup countries are available yet.</Text>}{markets.data?.markets.map(m=><Pressable key={m.code} style={{padding:18}} onPress={()=>{setMarket(m);setCountryOpen(false);}}><Text>{m.name} · {m.currency}</Text></Pressable>)}<Pressable style={{padding:18}} onPress={()=>setCountryOpen(false)}><Text>Close</Text></Pressable></ScrollView></View></Modal>
+          <Pressable style={[styles.input, styles.countryField]} onPress={()=>setCountryOpen(true)} testID="signup-country"><Text style={styles.countryText}>{market ? `${market.name} · ${currencyMark(market.currency)}` : "Select country / wallet currency"}</Text></Pressable>
+          <Modal visible={countryOpen} transparent animationType="slide" onRequestClose={()=>setCountryOpen(false)}><View style={{flex:1,justifyContent:"center",backgroundColor:"#0008",padding:24}}><ScrollView style={{backgroundColor:"white",borderRadius:20,maxHeight:500}}>{markets.error && <Text style={{padding:18}}>Could not load available countries. Please try again.</Text>}{!markets.isLoading && !markets.error && !markets.data?.markets.length && <Text style={{padding:18}}>No signup countries are available yet.</Text>}{markets.data?.markets.map(m=><Pressable key={m.code} style={{padding:18}} onPress={()=>{setMarket(m);setCountryOpen(false);}}><Text>{m.name} · {currencyMark(m.currency)}</Text></Pressable>)}<Pressable style={{padding:18}} onPress={()=>setCountryOpen(false)}><Text>Close</Text></Pressable></ScrollView></View></Modal>
 
           <Input icon="person-outline" placeholder="Full Name" value={fullName} onChangeText={setFullName} testID="signup-name" />
           <Input icon="mail-outline" placeholder="Email Address" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} value={email} onChangeText={setEmail} testID="signup-email" />

@@ -10,7 +10,7 @@ import { StackHeader } from "@/src/components/stack-header";
 import { ScreenBackground, PrimaryButton, LoadingView, QueryErrorView } from "@/src/components/ui";
 import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
-import { formatNaira } from "@/src/lib/format";
+import { currencyMark, formatNaira } from "@/src/lib/format";
 
 export default function Wallet() {
   const styles = useStyles();
@@ -44,7 +44,7 @@ export default function Wallet() {
         <LinearGradient colors={[colors.brandDeep, colors.brandPrimary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.card}>
           <Text style={styles.label}>Available Balance</Text>
           <Text style={[styles.value, { fontSize: balanceFontSize }]} numberOfLines={1} testID="wallet-balance">{balanceLabel}</Text>
-          <Text style={styles.currency}>Wallet • {data.currency}</Text>
+          <Text style={styles.currency}>Wallet • {currencyMark(data.currency)}</Text>
           <Ionicons name="wallet" size={96} color="rgba(255,255,255,0.12)" style={styles.bgIcon} />
         </LinearGradient>
 
