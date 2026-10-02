@@ -9,7 +9,7 @@ Create a separate staging Neon branch/database (PostgreSQL 16 or newer). Keep it
 - **Pooled** hostname containing `-pooler`: backend `DATABASE_URL`.
 - **Direct** hostname: local/CI `DATABASE_URL_UNPOOLED`, for schema migrations and imports.
 
-Keep `sslmode=require` (or stronger) on both. Do not put either in frontend variables, Git, screenshots or browser code. Use an owner role for migrations and a dedicated non-owner runtime role for the API. After migrations, grant runtime USAGE on the schema, SELECT/INSERT/UPDATE/DELETE on application tables, and SELECT on `schema_migrations`; revoke UPDATE/DELETE on `ledger` and all write privileges on `schema_migrations`. The runtime role must not own tables or have schema CREATE privileges. Trigger checks additionally protect normal ledger writes.
+Keep `sslmode=require` (or stronger) on both. Do not put either in frontend variables, Git, screenshots or browser code. Use an owner role for migrations and a dedicated non-owner runtime role for the API. Create the runtime role before migrating and pass its **role name**, not its password, as `BGC_RUNTIME_ROLE` to the migration command. The command reconciles and verifies runtime USAGE on the schema, SELECT/INSERT/UPDATE/DELETE on the reviewed application tables, SELECT/INSERT only on `ledger`, and SELECT only on `schema_migrations`. It rejects unreviewed application tables and sequences. The runtime role must not own tables or have schema CREATE privileges. Trigger checks additionally protect normal ledger writes.
 
 From `backend`, with Python 3.12:
 
@@ -18,11 +18,13 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 # Set DATABASE_URL_UNPOOLED privately in this shell (or a local ignored .env).
-# APP_ENV=production enforces TLS. DATABASE_SCHEMA defaults to public.
+# Set BGC_RUNTIME_ROLE to the existing non-owner API database role name.
+# APP_ENV=production enforces TLS and requires BGC_RUNTIME_ROLE.
+# DATABASE_SCHEMA defaults to public.
 python scripts/migrate.py
 ```
 
-Migrations run once per database, outside Vercel builds/cold starts. They are transactional and checksum-verified. Do not edit an applied SQL file; add another migration. Existing Mongo data: follow `NEON-MIGRATION.md` before bootstrapping anything. An import requires an empty target.
+Migrations run outside Vercel builds/cold starts. They are transactional and checksum-verified; repeating the command also repairs and checks grants on already migrated tables. Do not edit an applied SQL file; add another migration. When adding a runtime table or sequence, update the explicit privilege policy in `backend/scripts/runtime_grants.py` before applying the migration. Existing Mongo data: follow `NEON-MIGRATION.md` before bootstrapping anything. An import requires an empty target.
 
 For a **new empty staging database only**, set `DATABASE_URL` and the backend variables below, then run:
 

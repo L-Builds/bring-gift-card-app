@@ -10,17 +10,22 @@ import re
 import sys
 from pathlib import Path
 import psycopg
-from dotenv import load_dotenv
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from dotenv import load_dotenv
+from scripts.runtime_grants import reconcile_runtime_grants
+
 load_dotenv(ROOT / '.env')
 
 
-def migrate(url, schema='public'):
+def migrate(url, schema='public', runtime_role=None):
     if not re.fullmatch(r'[a-z][a-z0-9_]{0,62}', schema):
         raise ValueError('Invalid schema')
     if not url:
         raise RuntimeError('DATABASE_URL_UNPOOLED is required for migrations')
+    role = (runtime_role if runtime_role is not None else os.environ.get('BGC_RUNTIME_ROLE', '')).strip()
+    if os.environ.get('APP_ENV') == 'production' and not role:
+        raise RuntimeError('BGC_RUNTIME_ROLE is required for production migrations and grant verification')
     from urllib.parse import urlsplit, parse_qs
     parsed = urlsplit(url)
     if '-pooler' in (parsed.hostname or ''):
@@ -41,6 +46,8 @@ def migrate(url, schema='public'):
             c.execute(body,prepare=False)
             c.execute('INSERT INTO schema_migrations(version,checksum) VALUES(%s,%s)',(file.stem,checksum))
             print('Applied '+file.stem)
+        if role:
+            reconcile_runtime_grants(c, schema, role)
 
 
 if __name__ == '__main__':

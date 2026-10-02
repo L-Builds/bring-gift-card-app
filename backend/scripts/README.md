@@ -2,7 +2,7 @@
 
 Run from backend using Python 3.12 and privately configured environment variables. Read ../../VERCEL-NEON.md and ../../NEON-MIGRATION.md.
 
-1. `python scripts/migrate.py`: transactional, checksum-verified PostgreSQL schema migrations via DATABASE_URL_UNPOOLED.
+1. `python scripts/migrate.py`: transactional, checksum-verified PostgreSQL schema migrations via `DATABASE_URL_UNPOOLED`. Set `BGC_RUNTIME_ROLE` to the existing non-owner API role name. Production migrations require it; the command reconciles and verifies table grants after every run. New runtime tables and sequences require an explicit policy entry in `scripts/runtime_grants.py`.
 2. `python scripts/export_mongo.py --output PRIVATE_NEW_DIRECTORY`: offline read-only exporter; optional pymongo dependency in a separate environment.
 3. `python scripts/import_snapshot.py PRIVATE_DIRECTORY`: full verified dry run, rolled back. Add --apply only for the intended empty target.
 4. `python scripts/bootstrap_markets.py`: missing website markets only, preserving admin changes. For new databases, not before importing.
